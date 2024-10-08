@@ -50,7 +50,8 @@ from torch.ao.quantization.quantizer.utils import (
 from torch.fx import GraphModule, Node
 
 __all__ = [
-    "ArmQuantizer",
+    "ArmTOSAQuantizer",
+    "ArmEthosUQuantizer",
     "get_symmetric_quantization_config",
 ]
 
@@ -209,7 +210,7 @@ def _get_not_module_type_or_name_filter(
     return not_module_type_or_name_filter
 
 
-class ArmQuantizer(Quantizer):
+class ArmTOSAQuantizer(Quantizer):
 
     def __init__(self, tosa_spec: TosaSpecification) -> None:
         super().__init__()
@@ -219,14 +220,14 @@ class ArmQuantizer(Quantizer):
         self.module_type_config: Dict[Callable, Optional[QuantizationConfig]] = {}
         self.module_name_config: Dict[str, Optional[QuantizationConfig]] = {}
 
-    def set_global(self, quantization_config: QuantizationConfig) -> ArmQuantizer:
+    def set_global(self, quantization_config: QuantizationConfig) -> ArmTOSAQuantizer:
         """Set quantization_config for submodules that are not already annotated by name or type filters."""
         self.global_config = quantization_config
         return self
 
     def set_module_type(
         self, module_type: Callable, quantization_config: QuantizationConfig
-    ) -> ArmQuantizer:
+    ) -> ArmTOSAQuantizer:
         """Set quantization_config for a submodule with type: `module_type`, for example:
         quantizer.set_module_name(Sub) or quantizer.set_module_name(nn.Linear), it will quantize all supported operator/operator
         patterns in the submodule with this module type with the given `quantization_config`
@@ -236,7 +237,7 @@ class ArmQuantizer(Quantizer):
 
     def set_module_name(
         self, module_name: str, quantization_config: Optional[QuantizationConfig]
-    ) -> ArmQuantizer:
+    ) -> ArmTOSAQuantizer:
         """Set quantization_config for a submodule with name: `module_name`, for example:
         quantizer.set_module_name("blocks.sub"), it will quantize all supported operator/operator
         patterns in the submodule with this module name with the given `quantization_config`
@@ -346,3 +347,8 @@ class ArmQuantizer(Quantizer):
 
     def validate(self, model: GraphModule) -> None:
         pass
+
+
+class ArmEthosUQuantizer(ArmTOSAQuantizer):
+    def __init__(self) -> None:
+        super().__init__(TosaSpecification.create_from_string("TOSA-0.80+BI"))

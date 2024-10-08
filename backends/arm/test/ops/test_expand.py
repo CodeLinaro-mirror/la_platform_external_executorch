@@ -17,7 +17,8 @@ import pytest
 import torch
 
 from executorch.backends.arm.quantizer.arm_quantizer import (
-    ArmQuantizer,
+    ArmEthosUQuantizer,
+    ArmTOSAQuantizer,
     get_symmetric_quantization_config,
 )
 from executorch.backends.arm.test import common, conftest
@@ -69,7 +70,9 @@ class TestSimpleExpand(unittest.TestCase):
     def _test_expand_tosa_BI_pipeline(self, module: torch.nn.Module, test_data: Tuple):
         tosa_spec = TosaSpecification.create_from_string("TOSA-0.80+BI")
         compile_spec = common.get_tosa_compile_spec(tosa_spec)
-        quantizer = ArmQuantizer(tosa_spec).set_io(get_symmetric_quantization_config())
+        quantizer = ArmTOSAQuantizer(tosa_spec).set_io(
+            get_symmetric_quantization_config()
+        )
         (
             ArmTester(module, example_inputs=test_data, compile_spec=compile_spec)
             .quantize(Quantize(quantizer, get_symmetric_quantization_config()))
@@ -86,8 +89,7 @@ class TestSimpleExpand(unittest.TestCase):
     def _test_expand_ethosu_BI_pipeline(
         self, compile_spec: CompileSpec, module: torch.nn.Module, test_data: Tuple
     ):
-        tosa_spec = TosaSpecification.create_from_compilespecs(compile_spec)
-        quantizer = ArmQuantizer(tosa_spec).set_io(get_symmetric_quantization_config())
+        quantizer = ArmEthosUQuantizer().set_io(get_symmetric_quantization_config())
         tester = (
             ArmTester(
                 module,

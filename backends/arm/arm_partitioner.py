@@ -7,16 +7,19 @@
 
 import logging
 import os
-from typing import Callable, final, List, Optional, Sequence, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 import torch
-from executorch.backends.arm.arm_backend import (  # type: ignore[attr-defined]
-    ArmBackend,
+from executorch.backends.arm.arm_backend import (
+    get_tosa_spec,
+    is_ethosu,
+    is_tosa,
 )  # usort: skip
+from executorch.backends.arm.arm_ethosu_backend import ArmEthosUBackend
+from executorch.backends.arm.arm_tosa_backend import ArmTOSABackend
 from executorch.backends.arm.operator_support.tosa_supported_operators import (
     tosa_support_factory,
 )
-from executorch.backends.arm.tosa_specification import TosaSpecification
 from executorch.exir.backend.compile_spec_schema import CompileSpec
 from executorch.exir.backend.partitioner import (
     DelegationSpec,
@@ -54,28 +57,27 @@ def is_dequant_node(node: torch.fx.node.Node) -> bool:
     }
 
 
-@final
-class ArmPartitioner(Partitioner):
+class ArmTOSAPartitioner(Partitioner):
     def __init__(
         self,
         compile_spec: List[CompileSpec],
         additional_checks: Optional[Sequence[OperatorSupportBase]] = None,
     ) -> None:
-        self.delegation_spec = DelegationSpec(ArmBackend.__name__, compile_spec)
+        if not is_tosa(compile_spec):
+            raise RuntimeError("compile spec is not targeting TOSA")
+        self.delegation_spec = DelegationSpec(ArmTOSABackend.__name__, compile_spec)
         self.additional_checks = additional_checks
 
     def partition(self, exported_program: ExportedProgram) -> PartitionResult:
         # Run the CapabilityBasedPartitioner to return the largest possible
         # subgraphs containing the nodes with the tags
 
-        logger.info("ArmPartitioner::partition")
+        logger.info("ArmTOSAPartitioner::partition")
         partition_tags = {}
 
-        tosa_spec = TosaSpecification.create_from_compilespecs(
-            self.delegation_spec.compile_specs
-        )
+        tosa_spec = get_tosa_spec(self.delegation_spec.compile_specs)
 
-        logger.info(f"Partitioning for {tosa_spec}")
+        logger.info(f"Partitioning for {self.delegation_spec.backend_id}: {tosa_spec}")
 
         capability_partitioner = CapabilityBasedPartitioner(
             exported_program.graph_module,
@@ -158,3 +160,17 @@ class ArmPartitioner(Partitioner):
         ] + ops_to_not_decompose_if_quant_op
 
         return (ops_to_not_decompose, filter_fn)
+
+
+class ArmEthosUPartitioner(ArmTOSAPartitioner):
+    def __init__(
+        self,
+        compile_spec: List[CompileSpec],
+        additional_checks: Optional[Sequence[OperatorSupportBase]] = None,
+    ) -> None:
+        if not is_ethosu(compile_spec):
+            raise RuntimeError("compile spec is not targeting Ethos-U")
+
+        # Override the delegation spec for Ethos-U
+        self.delegation_spec = DelegationSpec(ArmEthosUBackend.__name__, compile_spec)
+        self.additional_checks = additional_checks

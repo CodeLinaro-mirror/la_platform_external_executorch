@@ -14,7 +14,7 @@ from typing import Tuple
 import torch
 
 from executorch.backends.arm.quantizer.arm_quantizer import (
-    ArmQuantizer,
+    ArmTOSAQuantizer,
     get_symmetric_quantization_config,
 )
 from executorch.backends.arm.test import common
@@ -63,7 +63,9 @@ class TestSimpleClone(unittest.TestCase):
     ):
         tosa_spec = TosaSpecification.create_from_string("TOSA-0.80+BI")
         compile_spec = common.get_tosa_compile_spec(tosa_spec)
-        quantizer = ArmQuantizer(tosa_spec).set_io(get_symmetric_quantization_config())
+        quantizer = ArmTOSAQuantizer(tosa_spec).set_io(
+            get_symmetric_quantization_config()
+        )
         (
             ArmTester(module, example_inputs=test_data, compile_spec=compile_spec)
             .quantize(Quantize(quantizer, get_symmetric_quantization_config()))

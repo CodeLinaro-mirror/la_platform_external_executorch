@@ -17,10 +17,19 @@ import serializer.tosa_serializer as ts  # type: ignore[import-untyped]
 import torch.fx
 import torch.utils._pytree as pytree
 
-from executorch.backends.arm.arm_backend import get_intermediate_path
-from executorch.backends.arm.arm_partitioner import ArmPartitioner
+from executorch.backends.arm.arm_backend import (
+    get_intermediate_path,
+    get_tosa_spec,
+    is_ethosu,
+    is_tosa,
+)
+from executorch.backends.arm.arm_partitioner import (
+    ArmEthosUPartitioner,
+    ArmTOSAPartitioner,
+)
 from executorch.backends.arm.quantizer.arm_quantizer import (
-    ArmQuantizer,
+    ArmEthosUQuantizer,
+    ArmTOSAQuantizer,
     get_symmetric_quantization_config,
 )
 from executorch.backends.arm.test.runner_utils import (
@@ -38,7 +47,6 @@ from executorch.backends.arm.test.tester.analyze_output_utils import (
     print_error_diffs,
 )
 from executorch.backends.arm.tosa_mapping import extract_tensor_meta
-from executorch.backends.arm.tosa_specification import TosaSpecification
 
 from executorch.backends.xnnpack.test.tester import Tester
 from executorch.devtools.backend_debug import get_delegation_info
@@ -251,11 +259,14 @@ class ArmTester(Tester):
 
     def quantize(self, quantize_stage: Optional[tester.Quantize] = None):
         if quantize_stage is None:
-            tosa_spec: TosaSpecification = TosaSpecification.create_from_compilespecs(
-                compile_specs=self.compile_spec
-            )
+            quantizer = None
+            if is_tosa(self.compile_spec):
+                tosa_spec = get_tosa_spec(self.compile_spec)
+                quantizer = ArmTOSAQuantizer(tosa_spec)
+            elif is_ethosu(self.compile_spec):
+                quantizer = ArmEthosUQuantizer()
             quantize_stage = tester.Quantize(
-                ArmQuantizer(tosa_spec),
+                quantizer,
                 get_symmetric_quantization_config(is_per_channel=False),
             )
         return super().quantize(quantize_stage)
@@ -275,7 +286,12 @@ class ArmTester(Tester):
 
     def partition(self, partition_stage: Optional[Partition] = None):
         if partition_stage is None:
-            arm_partitioner = ArmPartitioner(compile_spec=self.compile_spec)
+            if is_tosa(self.compile_spec):
+                arm_partitioner = ArmTOSAPartitioner(compile_spec=self.compile_spec)
+            elif is_ethosu(self.compile_spec):
+                arm_partitioner = ArmEthosUPartitioner(compile_spec=self.compile_spec)
+            else:
+                raise ValueError("compile spec doesn't target any Arm Partitioner")
             partition_stage = Partition(arm_partitioner)
         return super().partition(partition_stage)
 
@@ -287,7 +303,16 @@ class ArmTester(Tester):
     ):
         if to_edge_and_lower_stage is None:
             if partitioners is None:
-                partitioners = [ArmPartitioner(compile_spec=self.compile_spec)]
+                arm_partitioner = None
+                if is_tosa(self.compile_spec):
+                    arm_partitioner = ArmTOSAPartitioner(compile_spec=self.compile_spec)
+                elif is_ethosu(self.compile_spec):
+                    arm_partitioner = ArmEthosUPartitioner(
+                        compile_spec=self.compile_spec
+                    )
+                else:
+                    raise ValueError("compile spec doesn't target any Arm Partitioner")
+                partitioners = [arm_partitioner]
             to_edge_and_lower_stage = ToEdgeTransformAndLower(
                 partitioners, edge_compile_config
             )

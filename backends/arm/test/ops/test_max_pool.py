@@ -14,7 +14,8 @@ import pytest
 
 import torch
 from executorch.backends.arm.quantizer.arm_quantizer import (
-    ArmQuantizer,
+    ArmEthosUQuantizer,
+    ArmTOSAQuantizer,
     get_symmetric_quantization_config,
 )
 from executorch.backends.arm.test import common, conftest
@@ -89,7 +90,9 @@ class TestMaxPool2d(unittest.TestCase):
     ):
         tosa_spec = TosaSpecification.create_from_string("TOSA-0.80+BI")
         compile_spec = common.get_tosa_compile_spec(tosa_spec)
-        quantizer = ArmQuantizer(tosa_spec).set_io(get_symmetric_quantization_config())
+        quantizer = ArmTOSAQuantizer(tosa_spec).set_io(
+            get_symmetric_quantization_config()
+        )
         (
             ArmTester(module, example_inputs=test_data, compile_spec=compile_spec)
             .quantize(Quantize(quantizer, get_symmetric_quantization_config()))
@@ -115,8 +118,7 @@ class TestMaxPool2d(unittest.TestCase):
         compile_spec: CompileSpec,
         test_data: Tuple[torch.tensor],
     ):
-        tosa_spec = TosaSpecification.create_from_compilespecs(compile_spec)
-        quantizer = ArmQuantizer(tosa_spec).set_io(get_symmetric_quantization_config())
+        quantizer = ArmEthosUQuantizer().set_io(get_symmetric_quantization_config())
         tester = (
             ArmTester(
                 module,
@@ -244,8 +246,7 @@ class TestMaxPool2d(unittest.TestCase):
         test_data: torch.tensor,
     ):
         compile_spec = common.get_u55_compile_spec()
-        tosa_spec = TosaSpecification.create_from_compilespecs(compile_spec)
-        quantizer = ArmQuantizer(tosa_spec).set_io(get_symmetric_quantization_config())
+        quantizer = ArmEthosUQuantizer().set_io(get_symmetric_quantization_config())
 
         (
             ArmTester(

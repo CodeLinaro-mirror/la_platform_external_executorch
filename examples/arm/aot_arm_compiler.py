@@ -16,10 +16,19 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import torch
-from executorch.backends.arm.arm_backend import ArmCompileSpecBuilder, CompileSpec
-from executorch.backends.arm.arm_partitioner import ArmPartitioner
+from executorch.backends.arm.arm_backend import (
+    ArmCompileSpecBuilder,
+    get_tosa_spec,
+    is_ethosu,
+    is_tosa,
+)
+from executorch.backends.arm.arm_partitioner import (
+    ArmEthosUPartitioner,
+    ArmTOSAPartitioner,
+)
 from executorch.backends.arm.quantizer.arm_quantizer import (
-    ArmQuantizer,
+    ArmEthosUQuantizer,
+    ArmTOSAQuantizer,
     get_symmetric_quantization_config,
 )
 from executorch.backends.arm.tosa_specification import TosaSpecification
@@ -34,6 +43,7 @@ from executorch.exir import (
     ExecutorchBackendConfig,
     to_edge_transform_and_lower,
 )
+from executorch.exir.backend.compile_spec_schema import CompileSpec
 from executorch.extension.export_util.utils import save_pte_program
 from tabulate import tabulate
 
@@ -89,7 +99,7 @@ def get_model_and_inputs_from_name(model_name: str) -> Tuple[torch.nn.Module, An
 def quantize(
     model: torch.nn.Module,
     model_name: str,
-    tosa_spec: TosaSpecification,
+    compile_specs: list[CompileSpec],
     example_inputs: Tuple[torch.Tensor],
     evaluator_name: str | None,
     evaluator_config: Dict[str, Any] | None,
@@ -97,7 +107,13 @@ def quantize(
     """This is the official recommended flow for quantization in pytorch 2.0 export"""
     logging.info("Quantizing Model...")
     logging.debug(f"Original model: {model}")
-    quantizer = ArmQuantizer(tosa_spec)
+    quantizer = None
+    if is_ethosu(compile_specs):
+        quantizer = ArmEthosUQuantizer()
+    elif is_tosa(compile_specs):
+        quantizer = ArmTOSAQuantizer(get_tosa_spec(compile_specs))
+    else:
+        raise RuntimeError("Unsupported compilespecs for quantization!")
 
     # if we set is_per_channel to True, we also need to add out_variant of quantize_per_channel/dequantize_per_channel
     operator_config = get_symmetric_quantization_config(is_per_channel=False)
@@ -263,8 +279,12 @@ def get_compile_spec(
     memory_mode: Optional[str] = None,
 ) -> list[CompileSpec]:
     spec_builder = None
-    if target == "TOSA":
-        spec_builder = ArmCompileSpecBuilder().tosa_compile_spec("TOSA-0.80+BI")
+    if target.startswith("TOSA"):
+        try:
+            tosa_spec = TosaSpecification.create_from_string(target)
+        except:
+            tosa_spec = TosaSpecification.create_from_string("TOSA-0.80+BI")
+        spec_builder = ArmCompileSpecBuilder().tosa_compile_spec(tosa_spec)
     elif "ethos-u55" in target:
         spec_builder = ArmCompileSpecBuilder().ethosu_compile_spec(
             target,
@@ -347,7 +367,7 @@ def dump_delegation_info(edge, intermediate_files_folder: Optional[str] = None):
             file.write(delegation_info_string)
 
 
-def get_args():
+def get_args():  # noqa C901
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "-m",
@@ -450,6 +470,10 @@ def get_args():
             + "This is required for running quantized models with unquantized input."
         )
 
+    if args.quantize and not args.delegate:
+        logging.error("--delegate must be set when using --quanitze flag.")
+        exit(1)
+
     # if we have custom ops, register them before processing the model
     if args.so_library is not None:
         logging.info(f"Loading custom ops from {args.so_library}")
@@ -497,7 +521,7 @@ if __name__ == "__main__":
     # Quantize if required
     model_int8 = None
     if args.delegate:
-        # As we can target multiple output encodings from ArmBackend, one must
+        # As we can target multiple output encodings, one must
         # be specified.
         compile_spec = get_compile_spec(
             args.target,
@@ -506,11 +530,10 @@ if __name__ == "__main__":
             args.memory_mode,
         )
         if args.quantize:
-            tosa_spec = TosaSpecification.create_from_compilespecs(compile_spec)
             model = quantize(
                 model,
                 args.model_name,
-                tosa_spec,
+                compile_spec,
                 example_inputs,
                 args.evaluate,
                 args.evaluate_config,
@@ -522,32 +545,21 @@ if __name__ == "__main__":
             if args.intermediates:
                 os.makedirs(args.intermediates, exist_ok=True)
 
+        if is_ethosu(compile_spec):
+            partitioner = ArmEthosUPartitioner(compile_spec)
+        elif is_tosa(compile_spec):
+            partitioner = ArmTOSAPartitioner(compile_spec)
+        else:
+            raise RuntimeError(f"Unhandled compile spec: {compile_spec}")
+
         edge = to_edge_transform_and_lower(
             exported_program,
-            partitioner=[ArmPartitioner(compile_spec)],
+            partitioner=[partitioner],
             compile_config=EdgeCompileConfig(
                 _check_ir_validity=False,
             ),
         )
-
     else:
-        if args.quantize:
-            tosa_spec = TosaSpecification.create_from_string("TOSA-0.80.0+BI")
-            model = quantize(
-                model,
-                args.model_name,
-                tosa_spec,
-                example_inputs,
-                args.evaluate,
-                args.evaluate_config,
-            )
-            model_int8 = model
-            # Wrap quantized model back into an exported_program
-            exported_program = torch.export.export_for_training(model, example_inputs)
-
-            if args.intermediates:
-                os.makedirs(args.intermediates, exist_ok=True)
-
         edge = to_edge_transform_and_lower(
             exported_program,
             compile_config=EdgeCompileConfig(
