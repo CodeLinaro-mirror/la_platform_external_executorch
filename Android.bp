@@ -1,0 +1,138 @@
+cc_library {
+    name: "libexecutorch",
+    srcs: [
+        "executorch/extension/data_loader/file_data_loader.cpp",
+        "executorch/extension/data_loader/mmap_data_loader.cpp",
+        "executorch/extension/evalue_util/print_evalue.cpp",
+        "executorch/extension/runner_util/inputs.cpp",
+        "executorch/extension/runner_util/inputs_portable.cpp",
+        ":executorch_portable_ops_gen_cpp",
+        "executorch/kernels/portable/cpu/*.cpp",
+        "executorch/kernels/portable/cpu/pattern/*.cpp",
+        "executorch/kernels/portable/cpu/util/*.cpp",
+        "executorch/kernels/prim_ops/et_copy_index.cpp",
+        "executorch/kernels/prim_ops/et_view.cpp",
+        "executorch/kernels/prim_ops/register_prim_ops.cpp",
+        "executorch/runtime/backend/interface.cpp",
+        "executorch/runtime/core/evalue.cpp",
+        "executorch/runtime/core/exec_aten/util/tensor_util_portable.cpp",
+        "executorch/runtime/core/portable_type/tensor_impl.cpp",
+        "executorch/runtime/executor/method.cpp",
+        "executorch/runtime/executor/method_meta.cpp",
+        "executorch/runtime/executor/program.cpp",
+        "executorch/runtime/executor/tensor_parser_exec_aten.cpp",
+        "executorch/runtime/executor/tensor_parser_portable.cpp",
+        "executorch/runtime/kernel/operator_registry.cpp",
+        "executorch/runtime/platform/abort.cpp",
+        "executorch/runtime/platform/default/posix.cpp",
+        "executorch/runtime/platform/log.cpp",
+        "executorch/runtime/platform/profiler.cpp",
+        "executorch/runtime/platform/runtime.cpp",
+        "executorch/schema/extended_header.cpp",
+    ],
+    include_dirs: ["external/pytorch"],
+    header_libs: [
+        "flatbuffer_headers",
+    ],
+    generated_headers: [
+        "executorch_fbs_gen",
+        "executorch_portable_ops_gen_h",
+    ],
+    cflags: [
+        "-Wno-unused-parameter",
+    ],
+    host_supported: true,
+    apex_available: [
+        "com.android.adservices.ondevicepersonalization",
+    ],
+    visibility: ["//packages/modules/OnDevicePersonalization:__subpackages__"],
+}
+
+cc_binary {
+    name: "executor_runner",
+    srcs: ["examples/portable/executor_runner/executor_runner.cpp"],
+    static_libs: [
+        "libgflags",
+    ],
+    whole_static_libs: [
+        "libexecutorch",
+    ],
+    include_dirs: ["external/pytorch"],
+    host_supported: true,
+}
+
+cc_genrule {
+    name: "executorch_fbs_gen",
+    host_supported: true,
+    tools: ["flatc"],
+    srcs: [
+        "executorch/schema/program.fbs",
+        "executorch/schema/scalar_type.fbs",
+    ],
+    out: [
+        "executorch/schema/program_generated.h",
+        "executorch/schema/scalar_type_generated.h",
+    ],
+    cmd: "$(location flatc) --cpp --cpp-std c++11 --gen-mutable --scoped-enums --include-prefix executorch/schema/ " +
+        "-o $(genDir)/executorch/schema/ $(in)"
+}
+
+filegroup {
+    name: "executorch_codegen_templates",
+    srcs: [
+        "codegen/templates/*.cpp",
+        "codegen/templates/*.h",
+        "codegen/templates/*.ini",
+    ],
+}
+
+filegroup {
+    name: "executorch_portable_yaml",
+    srcs: [
+        "executorch/kernels/portable/functions.yaml",
+    ],
+}
+
+cc_genrule {
+    name: "executorch_portable_ops_gen_cpp",
+    host_supported: true,
+    tools: ["torchgen_executorch"],
+    tool_files: [
+        ":executorch_codegen_templates",
+        ":executorch_portable_yaml",
+        ":torchgen_native_functions",
+        ":torchgen_tags",
+    ],
+    out: [
+        "RegisterCodegenUnboxedKernels_0.cpp",
+    ],
+    cmd: "mkdir templates; cp $(locations :executorch_codegen_templates) templates;" +
+        "$(location torchgen_executorch) " +
+        "--source-path=. " +
+        "--tags-path=$(location :torchgen_tags) " +
+        "--aten_yaml_path=$(location :torchgen_native_functions) " +
+        "--functions_yaml_path=$(location :executorch_portable_yaml) " +
+        "--install_dir=$(genDir)/",
+}
+
+cc_genrule {
+    name: "executorch_portable_ops_gen_h",
+    host_supported: true,
+    tools: ["torchgen_executorch"],
+    tool_files: [
+        ":executorch_codegen_templates",
+        ":executorch_portable_yaml",
+        ":torchgen_native_functions",
+        ":torchgen_tags",
+    ],
+    out: [
+        "NativeFunctions.h",
+    ],
+    cmd: "mkdir templates; cp $(locations :executorch_codegen_templates) templates;" +
+        "$(location torchgen_executorch) " +
+        "--source-path=. " +
+        "--tags-path=$(location :torchgen_tags) " +
+        "--aten_yaml_path=$(location :torchgen_native_functions) " +
+        "--functions_yaml_path=$(location :executorch_portable_yaml) " +
+        "--install_dir=$(genDir)/",
+}
