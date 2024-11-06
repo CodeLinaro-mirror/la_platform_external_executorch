@@ -16,8 +16,8 @@ from executorch.backends.arm.operators.node_visitor import (
 from executorch.backends.arm.tosa_mapping import TosaArg
 from executorch.backends.arm.tosa_quant_utils import (
     build_rescale,
-    search_quant_arg_downstream,
-    search_quant_arg_upstream,
+    get_quant_arg_downstream,
+    get_quant_arg_upstream,
 )
 
 from executorch.backends.arm.tosa_utils import build_reshape
@@ -70,7 +70,7 @@ class AddmmVisitor(NodeVisitor):
         input_zp = 0
         if is_quant_node:
             input_node = node.all_input_nodes[1]
-            input_zp = search_quant_arg_upstream(input_node).zp
+            input_zp = get_quant_arg_upstream(input_node).zp
         attr.ConvAttribute(
             pad=pad_attr,
             stride=stride_attr,
@@ -105,16 +105,16 @@ class AddmmVisitor(NodeVisitor):
             # Read inputs' parent nodes
             _, input_node, weight_node = node.all_input_nodes
 
-            qargs = search_quant_arg_upstream(input_node)
+            qargs = get_quant_arg_upstream(input_node)
             input_scale = qargs.scale
             consumer_node = list(node.users)[0]
-            quant_args = search_quant_arg_downstream(consumer_node)
+            quant_args = get_quant_arg_downstream(consumer_node)
 
             consumer_node_scale = quant_args.scale
             consumer_node_node_zp = quant_args.zp
 
             weight_node_q_node = weight_node.all_input_nodes[0]
-            weight_scale = search_quant_arg_upstream(weight_node_q_node).scale
+            weight_scale = get_quant_arg_upstream(weight_node_q_node).scale
 
             output_rescale_scale = (input_scale * weight_scale) / consumer_node_scale
 
