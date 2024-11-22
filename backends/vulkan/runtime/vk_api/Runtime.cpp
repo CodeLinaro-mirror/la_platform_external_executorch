@@ -134,7 +134,7 @@ VkInstance create_instance(const RuntimeConfig& config) {
 
 std::vector<Runtime::DeviceMapping> create_physical_devices(
     VkInstance instance) {
-  if (VK_NULL_HANDLE == instance) {
+  if (instance == VK_NULL_HANDLE) {
     return std::vector<Runtime::DeviceMapping>();
   }
 
@@ -176,7 +176,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debug_report_callback_fn(
 VkDebugReportCallbackEXT create_debug_report_callback(
     VkInstance instance,
     const RuntimeConfig config) {
-  if (VK_NULL_HANDLE == instance || !config.enable_validation_messages) {
+  if (instance == VK_NULL_HANDLE || !config.enable_validation_messages) {
     return VkDebugReportCallbackEXT{};
   }
 
@@ -265,7 +265,7 @@ std::unique_ptr<Runtime> init_global_vulkan_runtime() {
   };
 
   try {
-    return std::make_unique<Runtime>(Runtime(default_config));
+    return std::make_unique<Runtime>(default_config);
   } catch (...) {
   }
 
@@ -296,7 +296,7 @@ Runtime::Runtime(const RuntimeConfig config)
 }
 
 Runtime::~Runtime() {
-  if (VK_NULL_HANDLE == instance_) {
+  if (instance_ == VK_NULL_HANDLE) {
     return;
   }
 
@@ -321,16 +321,6 @@ Runtime::~Runtime() {
 
   vkDestroyInstance(instance_, nullptr);
   instance_ = VK_NULL_HANDLE;
-}
-
-Runtime::Runtime(Runtime&& other) noexcept
-    : config_(other.config_),
-      instance_(other.instance_),
-      adapters_(std::move(other.adapters_)),
-      default_adapter_i_(other.default_adapter_i_),
-      debug_report_callback_(other.debug_report_callback_) {
-  other.instance_ = VK_NULL_HANDLE;
-  other.debug_report_callback_ = {};
 }
 
 uint32_t Runtime::create_adapter(const Selector& selector) {
