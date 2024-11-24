@@ -2,7 +2,7 @@
 
 **Author:** [Anthony Shoumikhin](https://github.com/shoumikhin)
 
-Tensors are fundamental data structures in ExecuTorch, representing multi-dimensional arrays used in computations for neural networks and other numerical algorithms. In ExecuTorch, the [Tensor](https://github.com/pytorch/executorch/blob/main/runtime/core/portable_type/tensor.h) class doesn’t own its metadata (sizes, strides, dim_order) or data, keeping the runtime lightweight. Users are responsible for supplying all these memory buffers and ensuring that the metadata and data outlive the `Tensor` instance. While this design is lightweight and flexible, especially for tiny embedded systems, it places a significant burden on the user. However, if your environment requires minimal dynamic allocations, a small binary footprint, or limited C++ standard library support, you’ll need to accept that trade-off and stick with the regular `Tensor` type.
+Tensors are fundamental data structures in ExecuTorch, representing multi-dimensional arrays used in computations for neural networks and other numerical algorithms. In ExecuTorch, the [Tensor](https://github.com/pytorch/executorch/blob/main/runtime/core/portable_type/tensor.h) class doesn’t own its metadata (sizes, strides, dim_order) or data, keeping the runtime lightweight. Users are responsible for supplying all these memory buffers and ensuring that the metadata and data outlive the `Tensor` instance. While this design is lightweight and flexible, especially for tiny embedded systems, it places a significant burden on the user. If your environment requires minimal dynamic allocations, a small binary footprint, or limited C++ standard library support, you’ll need to accept that trade-off and stick with the regular `Tensor` type.
 
 Imagine you’re working with a [`Module`](extension-module.md) interface, and you need to pass a `Tensor` to the `forward()` method. You would need to declare and maintain at least the sizes array and data separately, sometimes the strides too, often leading to the following pattern:
 
@@ -31,9 +31,9 @@ You must ensure `sizes`, `dim_order`, `strides`, and `data` stay valid. This mak
 
 ## Introducing TensorPtr
 
-To alleviate these issues, ExecuTorch provides `TensorPtr` and `TensorImplPtr` via the new [Tensor Extension](https://github.com/pytorch/executorch/tree/main/extension/tensor) that manage the lifecycle of tensors and their implementations. These are essentially smart pointers (`std::unique_ptr<Tensor>` and `std::shared_ptr<TensorImpl>`, respectively) that handle the memory management of both the tensor's data and its dynamic metadata.
+To alleviate these issues, ExecuTorch provides `TensorPtr`, a smart pointer that manages the lifecycle of both the tensor's data and its dynamic metadata.
 
-Now, users no longer need to worry about metadata lifetimes separately. Data ownership is determined based on whether the it is passed by pointer or moved into the `TensorPtr` as an `std::vector`. Everything is bundled in one place and managed automatically, enabling you to focus on actual computations.
+With `TensorPtr`, users no longer need to worry about metadata lifetimes separately. Data ownership is determined based on whether it is passed by pointer or moved into the `TensorPtr` as an `std::vector`. Everything is bundled in one place and managed automatically, enabling you to focus on actual computations.
 
 Here’s how you can use it:
 
@@ -50,24 +50,21 @@ auto tensor = make_tensor_ptr(
 module.forward(tensor);
 ```
 
-The data is now owned by the tensor instance because it's provided as a vector. To create a non-owning `TensorPtr` just pass the data by pointer. The `type` is deduced automatically from the data vector (`float`). `strides` and `dim_order` are computed automatically to the default values based on the `sizes` if not specified explicitly as extra arguments.
+The data is now owned by the tensor instance because it's provided as a vector. To create a non-owning `TensorPtr`, just pass the data by pointer. The `type` is deduced automatically based on the data vector (`float`). `strides` and `dim_order` are computed automatically to default values based on the `sizes` if not specified explicitly as additional arguments.
 
-`EValue` in `Module::forward()` accepts `TensorPtr` directly, ensuring seamless integration. `EValue` can now be constructed implicitly with a smart pointer to any type that it can hold, so `TensorPtr` gets dereferenced implicitly and `EValue` holding a `Tensor` that the  `TensorPtr` pointed at is passed to the `forward()`.
+`EValue` in `Module::forward()` accepts `TensorPtr` directly, ensuring seamless integration. `EValue` can now be constructed implicitly with a smart pointer to any type that it can hold. This allows `TensorPtr` to be dereferenced implicitly when passed to `forward()`, and `EValue` will hold the `Tensor` that the `TensorPtr` points to.
 
 ## API Overview
 
-The new API revolves around two main smart pointers:
-
-- `TensorPtr`: `std::unique_ptr` managing a `Tensor` object. Since each `Tensor` instance is unique, `TensorPtr` ensures exclusive ownership.
-- `TensorImplPtr`: `std::shared_ptr` managing a `TensorImpl` object. Multiple `Tensor` instances can share the same `TensorImpl`, so `TensorImplPtr` uses shared ownership.
+`TensorPtr` is literally an alias for `std::shared_ptr<Tensor>`, so you can work with it easily without duplicating the data and metadata. Each `Tensor` instance may either own its data or reference external data.
 
 ### Creating Tensors
 
 There are several ways to create a `TensorPtr`.
 
-### Creating Scalar Tensors
+#### Creating Scalar Tensors
 
-You can create a scalar tensor, i.e. a tensor with zero dimensions or with one of sizes being zero.
+You can create a scalar tensor, i.e. a tensor with zero dimensions or with one of the sizes being zero.
 
 *Providing A Single Data Value*
 
@@ -75,7 +72,7 @@ You can create a scalar tensor, i.e. a tensor with zero dimensions or with one o
 auto tensor = make_tensor_ptr(3.14);
 ```
 
-The resulting tensor will contain a single value 3.14 of type double, which is deduced automatically.
+The resulting tensor will contain a single value `3.14` of type double, which is deduced automatically.
 
 *Providing A Single Data Value with a Type*
 
@@ -83,9 +80,9 @@ The resulting tensor will contain a single value 3.14 of type double, which is d
 auto tensor = make_tensor_ptr(42, ScalarType::Float);
 ```
 
-Now the integer 42 will be cast to float and the tensor will contain a single value 42 of type float.
+Now the integer `42` will be cast to float and the tensor will contain a single value `42` of type float.
 
-#### Owning a Data Vector
+#### Owning Data from a Vector
 
 When you provide sizes and data vectors, `TensorPtr` takes ownership of both the data and the sizes.
 
@@ -101,7 +98,7 @@ The type is deduced automatically as `ScalarType::Float` from the data vector.
 
 *Providing Data Vector with a Type*
 
-If you provide data of one type but specify a different scalar type, the data will be cast to the specified type.
+If you provide data of one type but specify a different scalar type, the data will be cast to the given type.
 
 ```cpp
 auto tensor = make_tensor_ptr(
@@ -109,11 +106,11 @@ auto tensor = make_tensor_ptr(
     ScalarType::Double);         // double scalar type
 ```
 
-In this example, even though the data vector contains integers, we specify the scalar type as `Double`. The integers are cast to doubles, and the new data vector is owned by the `TensorPtr`. The `sizes` argument is skipped in this example, so the input data vector's size is used. Note that we forbid the opposite cast, when a floating point type casts to an integral type, because that loses precision. Similarly, casting other types to `Bool` isn't allowed.
+In this example, even though the data vector contains integers, we specify the scalar type as `Double`. The integers are cast to double, and the new data vector is owned by the `TensorPtr`. Since the `sizes` argument is skipped in this example, the tensor is one-dimensional with a size equal to the length of the data vector. Note that the reverse cast, from a floating-point type to an integral type, is not allowed because that loses precision. Similarly, casting other types to `Bool` is disallowed.
 
 *Providing Data Vector as `std::vector<uint8_t>`*
 
-You can also provide raw data as a `std::vector<uint8_t>`, specifying the sizes and scalar type. The data will be reinterpreted according to the provided type.
+You can also provide raw data in the form of a `std::vector<uint8_t>`, specifying the sizes and scalar type. The data will be reinterpreted according to the provided type.
 
 ```cpp
 std::vector<uint8_t> data = /* raw data */;
@@ -125,7 +122,7 @@ auto tensor = make_tensor_ptr(
 
 The `data` vector must be large enough to accommodate all the elements according to the provided sizes and scalar type.
 
-#### Non-Owning a Raw Data Pointer
+#### Non-Owning Data from Raw Pointer
 
 You can create a `TensorPtr` that references existing data without taking ownership.
 
@@ -139,11 +136,11 @@ auto tensor = make_tensor_ptr(
     ScalarType::Float);  // float scalar type
 ```
 
-The `TensorPtr` does not own the data, you must ensure the `data` remains valid.
+The `TensorPtr` does not own the data, so you must ensure the `data` remains valid.
 
 *Providing Raw Data with Custom Deleter*
 
-If you want `TensorPtr` to manage the lifetime of the data, you can provide a custom deleter.
+If you want the `TensorPtr` to manage the lifetime of the data, you can provide a custom deleter.
 
 ```cpp
 auto* data = new double[6]{1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
@@ -151,35 +148,24 @@ auto tensor = make_tensor_ptr(
     {2, 3},                               // sizes
     data,                                 // data pointer
     ScalarType::Double,                   // double scalar type
-    TensorShapeDynamism::DYNAMIC_BOUND,   // some default dynamism
+    TensorShapeDynamism::DYNAMIC_BOUND,   // default dynamism
     [](void* ptr) { delete[] static_cast<double*>(ptr); });
 ```
 
-The `TensorPtr` will call the custom deleter when it is destroyed, i.e. when the smart pointer is reset and no more references to the underlying `TensorImplPtr` exist.
+The `TensorPtr` will call the custom deleter when it is destroyed, i.e., when the smart pointer is reset and no more references to the underlying `Tensor` exist.
 
 #### Sharing Existing Tensor
 
-You can create a `TensorPtr` by wrapping an existing `TensorImplPtr`, and the latter can be created with the same collection of APIs as `TensorPtr`. Any changes made to `TensorImplPtr` or any `TensorPtr` sharing the same `TensorImplPtr` get reflected in for all.
-
-*Sharing Existing TensorImplPtr*
-
-```cpp
-auto tensor_impl = make_tensor_impl_ptr(
-    {2, 3},
-    {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
-auto tensor = make_tensor_ptr(tensor_impl);
-auto tensor_copy = make_tensor_ptr(tensor_impl);
-```
-
-Both `tensor` and `tensor_copy` share the underlying `TensorImplPtr`, reflecting changes in data but not in metadata.
-
-Also, you can create a new `TensorPtr` that shares the same `TensorImplPtr` as an existing `TensorPtr`.
+Since `TensorPtr` is a `std::shared_ptr<Tensor>`, you can easily create a `TensorPtr` that shares an existing `Tensor`. Any changes made to the shared data are reflected across all instances sharing the same data.
 
 *Sharing Existing TensorPtr*
 
 ```cpp
-auto tensor_copy = make_tensor_ptr(tensor);
+auto tensor = make_tensor_ptr({2, 3}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
+auto tensor_copy = tensor;
 ```
+
+Now `tensor` and `tensor_copy` point to the same data and metadata.
 
 #### Viewing Existing Tensor
 
@@ -192,7 +178,7 @@ Tensor original_tensor = /* some existing tensor */;
 auto tensor = make_tensor_ptr(original_tensor);
 ```
 
-Now the newly created `TensorPtr` references the same data as the original tensor, but has its own metadata copy, so can interpret or "view" the data differently, but any modifications to the data will be reflected for the original `Tensor` too.
+Now the newly created `TensorPtr` references the same data as the original tensor, but has its own metadata copy, so it can interpret or "view" the data differently, but any modifications to the data will be reflected in the original `Tensor` as well.
 
 ### Cloning Tensors
 
@@ -203,25 +189,25 @@ Tensor original_tensor = /* some existing tensor */;
 auto tensor = clone_tensor_ptr(original_tensor);
 ```
 
-The newly created `TensorPtr` has its own copy of the data, so can modify and manage it independently.
+The newly created `TensorPtr` has its own copy of the data, so it can modify and manage it independently.
 Likewise, you can create a clone of an existing `TensorPtr`.
 
 ```cpp
-auto original_tensor = make_tensor_ptr();
+auto original_tensor = make_tensor_ptr(/* ... */);
 auto tensor = clone_tensor_ptr(original_tensor);
 ```
 
-Note that regardless of whether the original `TensorPtr` owns the data or not, the newly created `TensorPtr` will own a copy of the data.
+Note that, regardless of whether the original `TensorPtr` owns the data or not, the newly created `TensorPtr` will own a copy of the data.
 
 ### Resizing Tensors
 
 The `TensorShapeDynamism` enum specifies the mutability of a tensor's shape:
 
 - `STATIC`: The tensor's shape cannot be changed.
-- `DYNAMIC_BOUND`: The tensor's shape can be changed, but can never contain more elements than it had at creation based on the initial sizes.
-- `DYNAMIC`: The tensor's shape can be changed arbitrarily. Note that currently `DYNAMIC` is an alias of `DYNAMIC_BOUND`.
+- `DYNAMIC_BOUND`: The tensor's shape can be changed but cannot contain more elements than it originally had at creation based on the initial sizes.
+- `DYNAMIC`: The tensor's shape can be changed arbitrarily. Currently, `DYNAMIC` is an alias for `DYNAMIC_BOUND`.
 
-When resizing a tensor, you must respect its dynamism setting. Resizing is only allowed for tensors with `DYNAMIC` or `DYNAMIC_BOUND` shapes, and you cannot resize `DYNAMIC_BOUND` tensor to contain more elements than it had initially.
+When resizing a tensor, you must respect its dynamism setting. Resizing is only allowed for tensors with `DYNAMIC` or `DYNAMIC_BOUND` shapes, and you cannot resize `DYNAMIC_BOUND` tensors to contain more elements than they had initially.
 
 ```cpp
 auto tensor = make_tensor_ptr(
@@ -233,19 +219,19 @@ auto tensor = make_tensor_ptr(
 // Number of elements: 6
 
 resize_tensor_ptr(tensor, {2, 2});
-// The tensor's sizes are now {2, 2}
+// The tensor sizes are now {2, 2}
 // Number of elements is 4 < initial 6
 
 resize_tensor_ptr(tensor, {1, 3});
-// The tensor's sizes are now {1, 3}
+// The tensor sizes are now {1, 3}
 // Number of elements is 3 < initial 6
 
 resize_tensor_ptr(tensor, {3, 2});
-// The tensor's sizes are now {3, 2}
+// The tensor sizes are now {3, 2}
 // Number of elements is 6 == initial 6
 
 resize_tensor_ptr(tensor, {6, 1});
-// The tensor's sizes are now {6, 1}
+// The tensor sizes are now {6, 1}
 // Number of elements is 6 == initial 6
 ```
 
@@ -378,7 +364,7 @@ This also applies when using functions like `set_input()` or `set_output()` that
 
 ## Interoperability with ATen
 
-If your code is compiled with the preprocessor flag `USE_ATEN_LIB` turned on, all the `TensorPtr` APIs will use `at::` APIs under the hood. E.g. `TensorPtr` becomes a `std::unique_ptr<at::Tensor>` and `TensorImplPtr` becomes `c10::intrusive_ptr<at::TensorImpl>`. This allows for seamless integration with [PyTorch ATen](https://pytorch.org/cppdocs) library.
+If your code is compiled with the preprocessor flag `USE_ATEN_LIB` enabled, all the `TensorPtr` APIs will use `at::` APIs under the hood. E.g. `TensorPtr` becomes a `std::shared_ptr<at::Tensor>`. This allows for seamless integration with [PyTorch ATen](https://pytorch.org/cppdocs) library.
 
 ### API Equivalence Table
 
@@ -413,14 +399,13 @@ Here's a table matching `TensorPtr` creation functions with their corresponding 
 
 ## Best Practices
 
-- *Manage Lifetimes Carefully*: Even though `TensorPtr` and `TensorImplPtr` handle memory management, you still need to ensure that any non-owned data (e.g., when using `from_blob()`) remains valid while the tensor is in use.
-- *Use Convenience Functions*: Utilize the provided helper functions for common tensor creation patterns to write cleaner and more readable code.
+- *Manage Lifetimes Carefully*: Even though `TensorPtr` handles memory management, ensure that any non-owned data (e.g., when using `from_blob()`) remains valid while the tensor is in use.
+- *Use Convenience Functions*: Utilize helper functions for common tensor creation patterns to write cleaner and more readable code.
 - *Be Aware of Data Ownership*: Know whether your tensor owns its data or references external data to avoid unintended side effects or memory leaks.
-- *Ensure TensorPtr Outlives EValue*: When passing tensors to modules that expect `EValue`, make sure the `TensorPtr` remains valid as long as the `EValue` is in use.
-- *Understand Scalar Types*: Be mindful of the scalar types when creating tensors, especially when casting between types.
+- *Ensure `TensorPtr` Outlives `EValue`*: When passing tensors to modules that expect `EValue`, ensure that the `TensorPtr` remains valid as long as the `EValue` is in use.
 
 ## Conclusion
 
-The `TensorPtr` and `TensorImplPtr` in ExecuTorch simplifies tensor memory management by bundling the data and dynamic metadata into smart pointers. This design eliminates the need for users to manage multiple pieces of data and ensures safer and more maintainable code.
+The `TensorPtr` in ExecuTorch simplifies tensor memory management by bundling the data and dynamic metadata into a smart pointer. This design eliminates the need for users to manage multiple pieces of data and ensures safer and more maintainable code.
 
-By providing interfaces similar to PyTorch's ATen library, ExecuTorch makes it easier for developers to adopt the new API without a steep learning curve.
+By providing interfaces similar to PyTorch's ATen library, ExecuTorch simplifies the adoption of the new API, allowing developers to transition without a steep learning curve.

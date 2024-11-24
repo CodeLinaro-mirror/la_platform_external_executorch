@@ -228,7 +228,7 @@ PipelineLayout::PipelineLayout(PipelineLayout&& other) noexcept
 }
 
 PipelineLayout::~PipelineLayout() {
-  if (VK_NULL_HANDLE == handle_) {
+  if (handle_ == VK_NULL_HANDLE) {
     return;
   }
   vkDestroyPipelineLayout(device_, handle_, nullptr);
@@ -300,7 +300,7 @@ ComputePipeline::ComputePipeline(ComputePipeline&& other) noexcept
 }
 
 ComputePipeline::~ComputePipeline() {
-  if (VK_NULL_HANDLE == handle_) {
+  if (handle_ == VK_NULL_HANDLE) {
     return;
   }
   vkDestroyPipeline(device_, handle_, nullptr);
@@ -402,11 +402,9 @@ ComputePipelineCache::ComputePipelineCache(
 ComputePipelineCache::~ComputePipelineCache() {
   purge();
 
-  if (VK_NULL_HANDLE == pipeline_cache_) {
+  if (pipeline_cache_ == VK_NULL_HANDLE) {
     return;
   }
-
-  save_cache();
 
   vkDestroyPipelineCache(device_, pipeline_cache_, nullptr);
   pipeline_cache_ = VK_NULL_HANDLE;
@@ -433,12 +431,12 @@ void ComputePipelineCache::purge() {
 }
 
 std::vector<char> ComputePipelineCache::load_cache() {
-  // Return if path is not specified; this means the optimization is disabled
+  // No optimization if path is unspecified
   if (cache_data_path_.empty()) {
     return {};
   }
 
-  // Return if file doesn't exist; this is expected on the first model-load
+  // Return if file doesn't exist; this is expected on first model-load
   std::ifstream file(cache_data_path_, std::ios::binary | std::ios::ate);
   if (file.fail()) {
     return {};
@@ -454,6 +452,17 @@ std::vector<char> ComputePipelineCache::load_cache() {
 }
 
 void ComputePipelineCache::save_cache() {
+  // No optimization if path is unspecified
+  if (cache_data_path_.empty()) {
+    return;
+  }
+
+  // Return if file exists; the cache is already saved
+  std::ifstream ifile(cache_data_path_);
+  if (ifile.good()) {
+    return;
+  }
+
   size_t size{};
   vkGetPipelineCacheData(device_, pipeline_cache_, &size, nullptr);
 
