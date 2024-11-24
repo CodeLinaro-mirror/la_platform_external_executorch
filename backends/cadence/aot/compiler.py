@@ -7,34 +7,36 @@
 # pyre-strict
 
 import logging
-from typing import Optional
+from pathlib import Path
+from typing import Callable, cast, Optional
 
+import executorch.backends.cadence.aot.ops_registrations  # noqa
 import torch
-
-from executorch.backends.cadence.aot._passes import (
-    InitializePipeline,
-    RemoveNopExpandOpPass,
-    RemoveZeroSizedCatArgsPass,
-    ReplaceLogicalNotBooleanWhereWithWherePass,
-    ReplacePT2DequantWithCadenceDequantPass,
-    ReplacePT2QuantWithCadenceQuantPass,
-    ReplaceSafeSoftmaxWithSoftmax,
-    ReplaceScalarTensorWithFullPass,
-    ReplaceSqueezeAndUnsqueezeWithViewPass,
-)
 from executorch.backends.cadence.aot.quantizer.fusion_pass import QuantFusion
 from executorch.backends.cadence.aot.quantizer.quantizer import CadenceQuantizer
+
+from executorch.backends.cadence.aot.replace_ops import ReplaceSafeSoftmaxWithSoftmax
 from executorch.backends.cadence.aot.utils import model_gm_has_SDPA, model_is_quantized
 from executorch.backends.transforms.decompose_sdpa import (
     DecomposeScaledDotProductAttention,
 )
-from executorch.backends.transforms.remove_clone_ops import RemoveCloneOpsTransform
-from executorch.exir import EdgeCompileConfig, EdgeProgramManager, to_edge
+from executorch.devtools import generate_etrecord
+from executorch.exir import (
+    EdgeCompileConfig,
+    EdgeProgramManager,
+    ExecutorchProgramManager,
+    to_edge,
+)
+from executorch.exir.pass_base import PassResult
 from torch.ao.quantization.pt2e.export_utils import model_is_exported
 from torch.ao.quantization.quantize_pt2e import convert_pt2e, prepare_pt2e
 
 from torch.export import export
 from torch.export.exported_program import ExportedProgram
+
+from .passes import get_cadence_passes
+
+from .utils import print_ops_info
 
 
 # Note: this is not meant as a primary API since it can create inconsistencies
@@ -192,28 +194,90 @@ def export_to_edge(
     return edge_prog_manager
 
 
-# Export the model and lower it to an EdgeProgramManager (in edge IR), and
-# apply passes specific to Cadence DSP execution.
 def export_to_cadence(
     model: torch.nn.Module,
     inputs: tuple[object, ...],
     dump_graphs: bool = False,
+    output_dir: Optional[str] = None,
+    opt_level: int = 1,
 ) -> EdgeProgramManager:
-    edge_program_manager = export_to_edge(model, inputs)
+    edge_prog_manager = export_to_edge(model, inputs)
+    cadence_passes = get_cadence_passes(opt_level)
 
     # Run a couple required passes for quant/dequant ops
-    cadence_program_manager = edge_program_manager.transform(
-        [
-            InitializePipeline(),
-            RemoveZeroSizedCatArgsPass(),
-            ReplaceLogicalNotBooleanWhereWithWherePass(),
-            ReplaceScalarTensorWithFullPass(),
-            RemoveCloneOpsTransform(),
-            RemoveNopExpandOpPass(),
-            ReplaceSqueezeAndUnsqueezeWithViewPass(),
-            ReplacePT2QuantWithCadenceQuantPass(),
-            ReplacePT2DequantWithCadenceDequantPass(),
-        ]
+    cadence_prog_manager = edge_prog_manager.transform(
+        cast(
+            list[Callable[[torch.fx.GraphModule], Optional[PassResult]]], cadence_passes
+        )
+    )
+    return cadence_prog_manager
+
+
+def quantize_and_export_to_cadence(
+    model: torch.nn.Module,
+    inputs: tuple[object, ...],
+    dump_graphs: bool = False,
+    opt_level: int = 1,
+) -> EdgeProgramManager:
+    quantized_model = quantize_pt2(model, inputs)
+
+    return export_to_cadence(
+        quantized_model,
+        inputs,
+        opt_level=opt_level,
+        dump_graphs=dump_graphs,
     )
 
-    return cadence_program_manager
+
+# Export the model and lower it to an EdgeProgramManager (in edge IR), and
+# apply passes specific to Cadence DSP execution. Return both to print the
+# differences.
+def export_to_executorch_gen_etrecord(
+    model: torch.nn.Module,
+    inputs: tuple[object, ...],
+    dump_graphs: bool = False,
+    output_dir: Optional[str] = None,
+    opt_level: int = 1,
+) -> ExecutorchProgramManager:
+    edge_prog_manager = export_to_edge(model, inputs)
+    cadence_passes = get_cadence_passes(opt_level)
+
+    # Run a couple required passes for quant/dequant ops
+    cadence_prog_manager = edge_prog_manager.transform(
+        cast(
+            list[Callable[[torch.fx.GraphModule], Optional[PassResult]]], cadence_passes
+        )
+    )
+
+    # Print some information to terminal
+    print_ops_info(
+        edge_prog_manager.exported_program().graph_module,
+        cadence_prog_manager.exported_program().graph_module,
+    )
+
+    # Get executorch program after Cadence specific passes
+    exec_prog: ExecutorchProgramManager = cadence_prog_manager.to_executorch()
+    if output_dir:
+        _gen_etrecord(edge_prog_manager, exec_prog, Path(output_dir))
+    else:
+        logging.warning("No output directory provided, skipping ETRecord generation")
+
+    return exec_prog
+
+
+def _gen_etrecord(
+    edge_program: EdgeProgramManager,
+    et_program: ExecutorchProgramManager,
+    output_dir: Path,
+) -> None:
+    etrec_path = output_dir / "etrecord.bin"
+    try:
+        generate_etrecord(
+            et_record=etrec_path,
+            edge_dialect_program=edge_program,
+            executorch_program=et_program,
+        )
+        logging.info(f"Generated ETRecord at {etrec_path}")
+    except Exception:
+        # Any errors here shouldn't block the rest of the flow
+        logging.exception("Encountered exception while generating ETRecord")

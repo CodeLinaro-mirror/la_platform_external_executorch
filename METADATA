@@ -1,16 +1,21 @@
-name: "executorch"
-description:
-    "This repository contains client code for executorch."
+# This project was upgraded with external_updater.
+# Usage: tools/external_updater/updater.sh update external/executorch
+# For more info, check https://cs.android.com/android/platform/superproject/main/+/main:tools/external_updater/README.md
 
+name: "executorch"
+description: "This repository contains client code for executorch."
 third_party {
-homepage: "https://github.com/pytorch/executorch"
+  license_type: NOTICE
+  last_upgrade_date {
+    year: 2024
+    month: 11
+    day: 21
+  }
+  homepage: "https://github.com/pytorch/executorch"
   identifier {
     type: "Git"
     value: "https://github.com/pytorch/executorch"
+    version: "91afa6e9234711ad76452f6bad192efe626dcabb"
     primary_source: true
-    version: "v0.4.0"
   }
-  version: "v0.4.0"
-  last_upgrade_date { year: 2024 month: 10 day: 30 }
-  license_type: NOTICE
 }
