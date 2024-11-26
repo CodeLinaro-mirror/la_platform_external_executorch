@@ -9,11 +9,41 @@ set -exu
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/utils.sh"
 
-MODEL_NAME=$1 # stories110M
-BUILD_TOOL=$2 # buck2 or cmake
-DTYPE=$3 # fp16 or fp32
-MODE=${4:-"xnnpack+custom"} # portable or xnnpack+custom or xnnpack+custom+qe
-UPLOAD_DIR=${5:-}
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -model)
+      MODEL_NAME="$2" # stories110M
+      shift 2
+      ;;
+    -build_tool)
+      BUILD_TOOL="$2" # buck2 or cmake
+      shift 2
+      ;;
+    -dtype)
+      DTYPE="$2" # fp16, bf16, or fp32
+      shift 2
+      ;;
+    -mode)
+      MODE="$2" # portable or xnnpack+custom or xnnpack+custom+qe
+      shift 2
+      ;;
+    -upload)
+      UPLOAD_DIR="$2"
+      shift 2
+      ;;
+    *)
+      echo "Unknown option: $1"
+      usage
+      ;;
+  esac
+done
+
+# Default mode to xnnpack+custom if not set
+MODE=${MODE:-"xnnpack+custom"}
+
+# Default UPLOAD_DIR to empty string if not set
+UPLOAD_DIR="${UPLOAD_DIR:-}"
+
 if [[ $# -lt 4 ]]; then # Assuming 4 mandatory args
     echo "Expecting atleast 4 positional arguments"
     echo "Usage: [...]"
@@ -29,7 +59,7 @@ if [[ -z "${BUILD_TOOL:-}" ]]; then
 fi
 
 if [[ -z "${DTYPE:-}" ]]; then
-  echo "Missing dtype, choose fp16 or fp32, exiting..."
+  echo "Missing dtype, choose fp16, bf16, or fp32, exiting..."
   exit 1
 fi
 
@@ -125,7 +155,7 @@ cmake_install_executorch_libraries() {
 
 cmake_build_llama_runner() {
     echo "Building llama runner"
-    dir="examples/models/llama2"
+    dir="examples/models/llama"
     retry cmake \
         -DCMAKE_INSTALL_PREFIX=cmake-out \
         -DCMAKE_BUILD_TYPE=Debug \
@@ -150,7 +180,7 @@ cleanup_files() {
 }
 
 prepare_artifacts_upload() {
-  if [ -n "$UPLOAD_DIR" ]; then
+  if [ -n "${UPLOAD_DIR}" ]; then
     echo "Preparing for uploading generated artifacs"
     zip -j model.zip "${EXPORTED_MODEL_NAME}" tokenizer.bin
     mkdir -p "${UPLOAD_DIR}"
@@ -174,6 +204,8 @@ fi
 EXPORTED_MODEL_NAME="tinyllama_${MODE}_${DTYPE}"
 if [[ "${DTYPE}" == "fp16" ]]; then
   EXPORTED_MODEL_NAME="${EXPORTED_MODEL_NAME}_h"
+elif [[ "${DTYPE}" == "bf16" ]]; then
+  EXPORTED_MODEL_NAME="${EXPORTED_MODEL_NAME}_bf"
 elif [[ "${DTYPE}" == "fp32" ]]; then
   :
 else
@@ -186,7 +218,7 @@ EXPORTED_MODEL_NAME="${EXPORTED_MODEL_NAME}.pte"
 echo "Exporting ${EXPORTED_MODEL_NAME}"
 EXPORT_ARGS="-c ${CHECKPOINT_FILE_NAME} -p ${PARAMS} -d ${DTYPE} -n ${EXPORTED_MODEL_NAME} -kv"
 if [[ "${XNNPACK}" == "ON" ]]; then
-  EXPORT_ARGS="${EXPORT_ARGS} -X -qmode 8da4w -G 128"
+  EXPORT_ARGS="${EXPORT_ARGS} -X --xnnpack-extended-ops -qmode 8da4w -G 128"
 fi
 if [[ "${CUSTOM}" == "ON" ]]; then
   EXPORT_ARGS="${EXPORT_ARGS} --use_sdpa_with_kv_cache"
@@ -204,20 +236,20 @@ if [[ "${QNN}" == "ON" ]]; then
   EXPORT_ARGS="${EXPORT_ARGS} -kv -v --qnn --disable_dynamic_shape"
 fi
 # Add dynamically linked library location
-$PYTHON_EXECUTABLE -m examples.models.llama2.export_llama ${EXPORT_ARGS}
+$PYTHON_EXECUTABLE -m examples.models.llama.export_llama ${EXPORT_ARGS}
 
 # Create tokenizer.bin.
 echo "Creating tokenizer.bin"
 $PYTHON_EXECUTABLE -m extension.llm.tokenizer.tokenizer -t tokenizer.model -o tokenizer.bin
 
 
-RUNTIME_ARGS="--model_path=${EXPORTED_MODEL_NAME} --tokenizer_path=tokenizer.bin --prompt=Once --temperature=0 --seq_len=10"
+RUNTIME_ARGS="--model_path=${EXPORTED_MODEL_NAME} --tokenizer_path=tokenizer.bin --prompt=Once --temperature=0 --seq_len=10 --warmup=1"
 # Check build tool.
 echo "Running ${EXPORTED_MODEL_NAME} in portable mode"
 if [[ "${BUILD_TOOL}" == "buck2" ]]; then
   # Run model.
   # shellcheck source=/dev/null
-  $BUCK run examples/models/llama2:main -- ${RUNTIME_ARGS} > result.txt
+  $BUCK run examples/models/llama:main -- ${RUNTIME_ARGS} > result.txt
 elif [[ "${BUILD_TOOL}" == "cmake" ]]; then
   cmake_install_executorch_libraries
   cmake_build_llama_runner
@@ -225,7 +257,7 @@ elif [[ "${BUILD_TOOL}" == "cmake" ]]; then
   NOW=$(date +"%H:%M:%S")
   echo "Starting to run llama runner at ${NOW}"
   # shellcheck source=/dev/null
-  cmake-out/examples/models/llama2/llama_main ${RUNTIME_ARGS} > result.txt
+  cmake-out/examples/models/llama/llama_main ${RUNTIME_ARGS} > result.txt
   NOW=$(date +"%H:%M:%S")
   echo "Finished at ${NOW}"
 else
