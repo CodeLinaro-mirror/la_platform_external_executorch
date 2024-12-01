@@ -74,7 +74,10 @@ include_directories(
   ${EXECUTORCH_SOURCE_DIR}/third-party/flatbuffers/include
 )
 
-set(_qnn_schema__srcs backends/qualcomm/serialization/schema.fbs)
+set(_qnn_schema__srcs
+  backends/qualcomm/serialization/qc_compiler_spec.fbs
+  backends/qualcomm/serialization/qc_binary_info.fbs
+)
 set(_qnn_schema__include_dir "${CMAKE_BINARY_DIR}/schema/include")
 # Paths to headers generated from the .fbs files.
 set(_qnn_schema__outputs)
@@ -181,7 +184,7 @@ target_link_libraries(
 )
 target_link_libraries(
   qnn_executorch_backend PRIVATE qnn_executorch_header qnn_schema qnn_manager
-                                 executorch_no_prim_ops qcir_utils extension_tensor
+                                 executorch_core qcir_utils extension_tensor
 )
 set_target_properties(
   qnn_executorch_backend PROPERTIES LINK_FLAGS "-Wl,-rpath='$ORIGIN'"
