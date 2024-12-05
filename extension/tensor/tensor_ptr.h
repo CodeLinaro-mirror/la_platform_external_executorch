@@ -77,30 +77,6 @@ inline TensorPtr make_tensor_ptr(
 /**
  * Creates a TensorPtr that manages a Tensor with the specified properties.
  *
- * @param sizes A vector specifying the size of each dimension.
- * @param data A pointer to the data buffer.
- * @param type The scalar type of the tensor elements.
- * @param dynamism Specifies the mutability of the tensor's shape.
- * @param deleter A custom deleter function for managing the lifetime of the
- * data buffer. If provided, this deleter will be called when the managed Tensor
- * object is destroyed.
- * @return A TensorPtr that manages the newly created Tensor.
- */
-inline TensorPtr make_tensor_ptr(
-    std::vector<executorch::aten::SizesType> sizes,
-    void* data,
-    const executorch::aten::ScalarType type =
-        executorch::aten::ScalarType::Float,
-    const executorch::aten::TensorShapeDynamism dynamism =
-        executorch::aten::TensorShapeDynamism::DYNAMIC_BOUND,
-    std::function<void(void*)> deleter = nullptr) {
-  return make_tensor_ptr(make_tensor_impl_ptr(
-      std::move(sizes), data, {}, {}, type, dynamism, std::move(deleter)));
-}
-
-/**
- * Creates a TensorPtr that manages a Tensor with the specified properties.
- *
  * This template overload is specialized for cases where the tensor data is
  * provided as a vector. The scalar type is automatically deduced from the
  * vector's data type. If the specified `type` differs from the deduced type of
@@ -361,29 +337,6 @@ inline TensorPtr make_tensor_ptr(const executorch::aten::Tensor& tensor) {
       tensor.scalar_type()
 #endif // USE_ATEN_LIB
   );
-}
-
-/**
- * Creates a TensorPtr that manages a Tensor with the specified properties.
- *
- * This overload accepts a raw memory buffer stored in a std::vector<uint8_t>
- * and a scalar type to interpret the data. The vector is managed, and the
- * memory's lifetime is tied to the TensorImpl.
- *
- * @param sizes A vector specifying the size of each dimension.
- * @param data A vector containing the raw memory for the tensor's data.
- * @param type The scalar type of the tensor elements.
- * @param dynamism Specifies the mutability of the tensor's shape.
- * @return A TensorPtr managing the newly created Tensor.
- */
-inline TensorPtr make_tensor_ptr(
-    std::vector<executorch::aten::SizesType> sizes,
-    std::vector<uint8_t> data,
-    executorch::aten::ScalarType type = executorch::aten::ScalarType::Float,
-    executorch::aten::TensorShapeDynamism dynamism =
-        executorch::aten::TensorShapeDynamism::DYNAMIC_BOUND) {
-  return make_tensor_ptr(
-      make_tensor_impl_ptr(std::move(sizes), std::move(data), type, dynamism));
 }
 
 /**
