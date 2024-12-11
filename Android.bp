@@ -1,5 +1,5 @@
 cc_library {
-    name: "libexecutorch_runtime",
+    name: "libexecutorch",
     srcs: [
         "extension/data_loader/file_data_loader.cpp",
         "extension/data_loader/mmap_data_loader.cpp",
@@ -44,7 +44,7 @@ cc_library {
     host_supported: true,
     apex_available: ["com.android.ondevicepersonalization"],
     sdk_version: "current",
-    min_sdk_version: "apex_inherit",
+    min_sdk_version: "33",
     visibility: ["//packages/modules/OnDevicePersonalization:__subpackages__"],
 }
 
@@ -55,7 +55,7 @@ cc_binary {
         "libgflags",
     ],
     whole_static_libs: [
-        "libexecutorch_runtime",
+        "libexecutorch",
     ],
     host_supported: true,
 }
@@ -140,54 +140,4 @@ cc_genrule {
         "--aten_yaml_path=$(location :torchgen_native_functions) " +
         "--functions_yaml_path=$(location :executorch_portable_yaml) " +
         "--install_dir=$(genDir)/",
-}
-
-java_library_static {
-    name: "executorch_java",
-    sdk_version: "current",
-    min_sdk_version: "33",
-    srcs: [
-        "extension/android/src/main/java/org/pytorch/executorch/annotations/*.java",
-        "extension/android/src/main/java/org/pytorch/executorch/*.java",
-        "java/com/facebook/soloader/nativeloader/*.java",
-    ],
-    apex_available: [
-        "com.android.ondevicepersonalization",
-    ],
-    static_libs: [
-        "libfbjni_java",
-    ],
-    visibility: [
-        "//packages/modules/OnDevicePersonalization:__subpackages__",
-    ],
-}
-
-cc_library_shared {
-    name: "libexecutorch",
-    srcs: [
-        "extension/android/jni/jni_layer.cpp",
-        "extension/android/jni/log.cpp",
-        "extension/module/*.cpp",
-        "extension/tensor/*.cpp",
-    ],
-    header_libs: [
-        "jni_headers",
-    ],
-    whole_static_libs: [
-        "libexecutorch_runtime",
-    ],
-    shared_libs: [
-        "liblog",
-        "libfbjni",
-    ],
-    stl: "libc++_static",
-    apex_available: ["com.android.ondevicepersonalization"],
-    sdk_version: "current",
-    min_sdk_version: "apex_inherit",
-    visibility: [
-        "//packages/modules/OnDevicePersonalization:__subpackages__",
-    ],
-    cflags: [
-        "-fexceptions",
-    ],
 }
