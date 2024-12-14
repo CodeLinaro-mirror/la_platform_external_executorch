@@ -339,7 +339,7 @@ class ToOutVarPass(PassBase):
                 self.call(get_submodule(node.args[0]))
                 self.call(get_submodule(node.args[1]))
                 continue
-            elif getattr(target, "__module__", None) == "_operator":
+            elif getattr(target, "__module__", None) in ("builtins", "_operator"):
                 continue
             elif target in to_out_var_skiplist:
                 continue
@@ -372,6 +372,8 @@ class ToOutVarPass(PassBase):
                 else:
                     out_var_target, out_args_names = to_out_variant(target)
             except RuntimeError as e:
+                # pyre-fixme[16]: `GraphModule` has no attribute
+                #  `encounter_to_out_var_failure`.
                 graph_module.encounter_to_out_var_failure = True
                 logging.info(
                     f"Failed converting '{target}' to its out variant with error: '{e}'"
