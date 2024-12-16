@@ -58,7 +58,7 @@ jobs:
         bash .ci/scripts/setup-conda.sh
         # Setup MacOS dependencies as there is no Docker support on MacOS atm
         PYTHON_EXECUTABLE=python ${CONDA_RUN} bash .ci/scripts/setup-macos.sh "${BUILD_TOOL}"
-        # Build and test xecutorch
+        # Build and test executorch
         PYTHON_EXECUTABLE=python ${CONDA_RUN} bash .ci/scripts/test_model.sh "${MODEL_NAME}" "${BUILD_TOOL}" "${BACKEND}" "${DEMO_BACKEND_DELEGATION}"
 
   test-custom-ops-macos:
@@ -137,6 +137,7 @@ jobs:
       docker-image: executorch-ubuntu-22.04-arm-sdk
       submodules: 'true'
       ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      timeout: 90
       script: |
         # The generic Linux job chooses to use base env, not the one setup by the image
         CONDA_ENV=$(conda env list --json | jq -r ".envs | .[-1]")
@@ -162,6 +163,7 @@ jobs:
       docker-image: executorch-ubuntu-22.04-arm-sdk
       submodules: 'true'
       ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      timeout: 90
       script: |
         # The generic Linux job chooses to use base env, not the one setup by the image
         CONDA_ENV=$(conda env list --json | jq -r ".envs | .[-1]")
@@ -223,8 +225,12 @@ jobs:
     strategy:
       matrix:
         dtype: [fp32]
-        build-tool: [buck2, cmake]
         mode: [portable, xnnpack+kv+custom, mps, coreml]
+        include:
+          - dtype: bf16
+            mode: portable
+          - dtype: bf16
+            mode: custom
       fail-fast: false
     with:
       runner: macos-m1-stable
@@ -235,25 +241,12 @@ jobs:
       script: |
 
         DTYPE=${{ matrix.dtype }}
-        BUILD_TOOL=${{ matrix.build-tool }}
         MODE=${{ matrix.mode }}
-
-        if [[ "${BUILD_TOOL}" == "buck2" ]]; then
-          # TODO: Will add more modes that don't support buck2
-          if [[ "${MODE}" == "mps" ]]; then
-            echo "mps doesn't support buck2."
-            exit 0
-          fi
-          if [[ "${MODE}" == "coreml" ]]; then
-            echo "coreml doesn't support buck2."
-            exit 0
-          fi
-        fi
 
         bash .ci/scripts/setup-conda.sh
 
         # Setup executorch
-        PYTHON_EXECUTABLE=python ${CONDA_RUN} bash .ci/scripts/setup-macos.sh "${BUILD_TOOL}"
+        PYTHON_EXECUTABLE=python ${CONDA_RUN} bash .ci/scripts/setup-macos.sh cmake
 
         if [[ "${MODE}" == "mps" ]]; then
           # Install mps delegate
@@ -266,9 +259,9 @@ jobs:
         fi
 
         # Install requirements for export_llama
-        PYTHON_EXECUTABLE=python ${CONDA_RUN} bash examples/models/llama2/install_requirements.sh
+        PYTHON_EXECUTABLE=python ${CONDA_RUN} bash examples/models/llama/install_requirements.sh
         # Test llama2
-        PYTHON_EXECUTABLE=python ${CONDA_RUN} bash .ci/scripts/test_llama.sh stories110M "${BUILD_TOOL}" "${DTYPE}" "${MODE}"
+        PYTHON_EXECUTABLE=python ${CONDA_RUN} bash .ci/scripts/test_llama.sh -model stories110M -build_tool cmake -dtype "${DTYPE}" -mode "${MODE}"
 
   # # TODO(jackzhxng): Runner consistently runs out of memory before test finishes. Try to find a more powerful runner.
   # test-llava-runner-macos:
@@ -290,7 +283,7 @@ jobs:
   #       GITHUB_RUNNER=1 PYTHON_EXECUTABLE=python ${CONDA_RUN} bash .ci/scripts/setup-macos.sh "${BUILD_TOOL}"
 
   #       # install Llava requirements
-  #       ${CONDA_RUN} bash examples/models/llama2/install_requirements.sh
+  #       ${CONDA_RUN} bash examples/models/llama/install_requirements.sh
   #       ${CONDA_RUN} bash examples/models/llava/install_requirements.sh
 
   #       # run python unittest
@@ -309,7 +302,7 @@ jobs:
       fail-fast: false
     with:
       runner: linux.2xlarge
-      docker-image: executorch-ubuntu-22.04-clang12-android
+      docker-image: executorch-ubuntu-22.04-qnn-sdk
       submodules: 'true'
       ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       timeout: 900
@@ -322,9 +315,9 @@ jobs:
         PYTHON_EXECUTABLE=python bash .ci/scripts/build-qnn-sdk.sh
         PYTHON_EXECUTABLE=python bash .ci/scripts/test_model.sh ${{ matrix.model }} "cmake" "qnn"
 
-  test-coreml-model:
-    name: test-coreml-model
-    uses: pytorch/test-infra/.github/workflows/macos_job.yml@release/2.5
+  test-apple-model:
+    name: test-apple-model
+    uses: pytorch/test-infra/.github/workflows/macos_job.yml@main
     strategy:
       fail-fast: false
     with:
@@ -335,7 +328,6 @@ jobs:
       timeout: 90
       script: |
         BUILD_TOOL=cmake
-        BACKEND=coreml
 
         bash .ci/scripts/setup-conda.sh
 
@@ -343,12 +335,18 @@ jobs:
         PYTHON_EXECUTABLE=python ${CONDA_RUN} bash .ci/scripts/setup-macos.sh "${BUILD_TOOL}"
         PYTHON_EXECUTABLE=python ${CONDA_RUN} bash backends/apple/coreml/scripts/install_requirements.sh
         echo "Finishing installing coreml."
+        PYTHON_EXECUTABLE=python ${CONDA_RUN} bash backends/apple/mps/install_requirements.sh
+        echo "Finishing installing mps."
 
         # Build and test coreml model
         MODELS=(mv3 ic4 resnet50 edsr mobilebert w2l)
         for MODEL_NAME in "${MODELS[@]}"; do
           echo "::group::Exporting coreml model: $MODEL_NAME"
-          PYTHON_EXECUTABLE=python ${CONDA_RUN} bash .ci/scripts/test_model.sh "${MODEL_NAME}" "${BUILD_TOOL}" "${BACKEND}"
+          PYTHON_EXECUTABLE=python ${CONDA_RUN} bash .ci/scripts/test_model.sh "${MODEL_NAME}" "${BUILD_TOOL}" "coreml"
+          echo "::endgroup::"
+
+          echo "::group::Exporting mps model: $MODEL_NAME"
+          PYTHON_EXECUTABLE=python ${CONDA_RUN} bash .ci/scripts/test_model.sh "${MODEL_NAME}" "${BUILD_TOOL}" "mps"
           echo "::endgroup::"
         done
 
@@ -391,7 +389,7 @@ jobs:
         cmake --build cmake-out -j9 --target install --config Release
 
         echo "Build llama runner"
-        dir="examples/models/llama2"
+        dir="examples/models/llama"
         cmake \
             -DCMAKE_INSTALL_PREFIX=cmake-out \
             -DCMAKE_BUILD_TYPE=Release \
@@ -406,11 +404,13 @@ jobs:
         echo "::endgroup::"
 
         echo "::group::Set up HuggingFace Dependencies"
+        if [ -z "$SECRET_EXECUTORCH_HF_TOKEN" ]; then
+          echo "::error::SECRET_EXECUTORCH_HF_TOKEN is empty. For security reason secrets won't be accessible on forked PRs. Please make sure you submit a non-forked PR."
+          exit 1
+        fi
         pip install -U "huggingface_hub[cli]"
         huggingface-cli login --token $SECRET_EXECUTORCH_HF_TOKEN
         pip install accelerate sentencepiece
-        # TODO(guangyang): Switch to use released transformers library after all required patches are included
-        pip install "git+https://github.com/huggingface/transformers.git@6cc4dfe3f1e8d421c6d6351388e06e9b123cbfe1"
         pip list
         echo "::endgroup::"
 
@@ -439,5 +439,5 @@ jobs:
 
         python -m extension.export_util.export_hf_model -hfm=${{ matrix.hf_model_repo }} -o ${ET_MODEL_NAME}
 
-        cmake-out/examples/models/llama2/llama_main --model_path=${ET_MODEL_NAME}.pte --tokenizer_path=${TOKENIZER_BIN_FILE} --prompt="My name is"
+        cmake-out/examples/models/llama/llama_main --model_path=${ET_MODEL_NAME}.pte --tokenizer_path=${TOKENIZER_BIN_FILE} --prompt="My name is"
         echo "::endgroup::"
