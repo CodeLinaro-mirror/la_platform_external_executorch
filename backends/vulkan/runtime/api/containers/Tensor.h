@@ -26,7 +26,7 @@ namespace api {
  */
 std::vector<int64_t> calculate_dim_order(
     const size_t ndim,
-    const utils::GPUMemoryLayout memory_layout);
+    const int32_t packed_dim);
 
 /*
  * Given the sizes of a tensor and the dim order of the tensor (both in NCHW)
@@ -57,7 +57,7 @@ std::vector<int64_t> unsqueeze_strides(
  */
 std::vector<int64_t> calculate_padded_sizes(
     const std::vector<int64_t>& sizes,
-    const utils::GPUMemoryLayout memory_layout);
+    const int32_t packed_dim);
 
 /*
  * Calculate the image extents required of a texture backed tensor.
@@ -65,7 +65,7 @@ std::vector<int64_t> calculate_padded_sizes(
 utils::uvec3 calculate_image_extents(
     const std::vector<int64_t>& padded_sizes,
     const std::vector<int64_t>& axis_map,
-    const utils::GPUMemoryLayout memory_layout);
+    const int32_t packed_dim);
 
 struct LastAccess {
   vkapi::PipelineStageFlags stage;
@@ -89,11 +89,13 @@ class vTensorStorage final {
   vTensorStorage(
       Context* context,
       const utils::StorageType storage_type,
-      const utils::GPUMemoryLayout gpu_memory_layout,
       const std::vector<int64_t>& axis_map,
+      const int32_t packed_dim,
       const std::vector<int64_t>& padded_sizes,
       const vkapi::ScalarType dtype,
       const bool allocate_memory = true);
+
+  vTensorStorage(Context* const context, const vkapi::VulkanImage& image);
 
  protected:
   /*
@@ -104,7 +106,7 @@ class vTensorStorage final {
    * because this behaviour is unsafe, since the original tensor may be
    * destroyed before the copy is destroyed.
    */
-  vTensorStorage(const vTensorStorage& other, const int64_t buffer_offset = 0);
+  vTensorStorage(vTensorStorage& other, const int64_t buffer_offset = 0);
 
  public:
   // To discourage creating copies, the assignment operator is still deleted.
@@ -134,6 +136,8 @@ class vTensorStorage final {
 
   // Last Access - used to insert memory barriers
   LastAccess last_access_;
+  // Indicates whether copies of this vTensorStorage have been made
+  bool has_copies_;
 
  private:
   // Registers underlying memory for cleanup
@@ -154,15 +158,14 @@ class vTensorStorage final {
   }
 
   /*
+   * Check if the underlying resource is a copy of another resource
+   */
+  bool is_copy() const;
+
+  /*
    * Used for checking if this vTensorStorage is a copy of another instance
    */
   bool is_copy_of(const vTensorStorage& other) const;
-
-  void discard_and_reallocate(
-      const std::vector<int64_t>& padded_sizes,
-      const std::vector<int64_t>& axis_map,
-      const utils::GPUMemoryLayout gpu_memory_layout,
-      const vkapi::ScalarType dtype);
 };
 
 class vTensor final {
@@ -182,6 +185,13 @@ class vTensor final {
       const utils::GPUMemoryLayout memory_layout = utils::kChannelsPacked,
       const bool allocate_memory = true);
 
+  vTensor(const vTensor& other) = delete;
+
+  explicit vTensor(
+      Context* context,
+      const vkapi::VulkanImage& image,
+      const utils::GPUMemoryLayout memory_layout = utils::kChannelsPacked);
+
   /*
    * This constructor allows for the creation of a vTensor that references the
    * same buffer resource of another vTensor, with the same sizes and strides
@@ -191,7 +201,7 @@ class vTensor final {
    * Once created, the sizes and strides of the aliased vTensor can be changed
    * using the `virtual_reconfigure` member function.
    */
-  vTensor(const vTensor& other);
+  vTensor(vTensor& other);
 
   /*
    * This constructor allows for the creation of a vTensor that references the
@@ -208,7 +218,7 @@ class vTensor final {
    * buffer.
    */
   vTensor(
-      const vTensor& other,
+      vTensor& other,
       const std::vector<int64_t>& sizes,
       const std::vector<int64_t>& dim_order,
       const int64_t offset_numel = 0);
@@ -227,13 +237,14 @@ class vTensor final {
 
   // Whether the tensor has elements of type float, int, etc.
   vkapi::ScalarType dtype_;
-  // Describes which dimension is "tightly packed". For texture backed tensors,
-  // this describes which dimension is packed along a texel. For buffer backed
-  // tensors, this describes which dimension has a stride of 1 (i.e. is last in
-  // the dim order).
-  utils::GPUMemoryLayout memory_layout_;
   // sizes of the tensor in NCHW dimension order
   std::vector<int64_t> sizes_;
+  // Describes which dimension is "tightly packed" using WHCN index (i.e. 0 for
+  // width, 1 for height, etc.). For texture backed tensors, this describes
+  // which dimension is packed along a texel. For buffer backed tensors, this
+  // describes which dimension has a stride of 1 (i.e. is last in the dim
+  // order).
+  int32_t packed_dim_;
 
   /*
    * "Layout" metadata. These describe with further detail how tensor data is
@@ -282,9 +293,7 @@ class vTensor final {
   // Contains the number of elements in the tensor according to the padded
   // sizes.
   size_t padded_numel_;
-  // See the comments documenting image_extents() for more context.
-  TextureLimits texture_limits_;
-  // See the comments documenting logical_extents() for more context.
+  // See the comments documenting logical_limits() for more context.
   TextureLimits logical_limits_;
 
   /*
@@ -299,8 +308,6 @@ class vTensor final {
   ParamsBuffer sizes_uniform_;
   ParamsBuffer strides_uniform_;
   ParamsBuffer numel_uniform_;
-  ParamsBuffer axis_map_uniform_;
-  ParamsBuffer texture_limits_uniform_;
   ParamsBuffer logical_limits_uniform_;
 
   vTensorStorage storage_;
@@ -348,28 +355,30 @@ class vTensor final {
     return storage_.storage_type_ == utils::kBuffer;
   }
 
-  /*
-   * Returns the raw image extents of the underlying image texture used to store
-   * the tensor's data. Note that due to axis mapping, the X, Y, and Z extents
-   * may not correspond to the width, height, or channels dimension of the
-   * tensor.
-   */
-  inline const utils::uvec3& image_extents() const {
-    return storage_.image_extents_;
-  }
-
  private:
-  void update_logical_limits();
+  void set_logical_limits(const utils::uvec3& image_extents);
 
  public:
   /*
-   * Returns the image extents of the underlying image texture, but re-ordered
-   * such that the first element is the extent of the axis used to represent the
-   * tensor's width dimension, the second element is the extent of the axis used
-   * to represent the tensor's height dimension, and the third element is the
-   * extent of the axis used to represent the tensor's channels dimension.
+   * The logical limits of the tensor are derived from the image extents of the
+   * image texture used to store the tensor, but with two key differences.
+   *
+   * First, the image extents are permuted according to the axis map. This
+   * makes it so that the first element of the logical limit is the limit of the
+   * texture axis corresponding to the width dimension of the tensor, the next
+   * element is the limit of the texture axis corresponding to the height
+   * dimension and the last element is the limit of the texture axis that
+   * corresponds to the channels dimension of the tensor.
+   *
+   * Second, the logical limits may use smaller extents than the actual image
+   * extents of the image texture. This is due to dynamic shape; if the tensor's
+   * `virtual_resize()` function is called, then the logical limits will reflect
+   * the extents that would be needed to support a tensor with the updated sizes
+   * instead of the original sizes.
    */
-  utils::uvec3 logical_extents() const;
+  inline const utils::ivec3& logical_limits() const {
+    return logical_limits_.limits;
+  }
 
   /*
    * Extract an `vkapi::ScalarType` from the TensorOptions member
@@ -378,12 +387,26 @@ class vTensor final {
     return dtype_;
   }
 
-  inline utils::GPUMemoryLayout gpu_memory_layout() const {
-    return memory_layout_;
+  /*
+   * Provide a "best guess" of a memory layout that can be used to construct a
+   * tensor with similar layout metadata (i.e. strides, axis_map, etc.) as this
+   * tensor. In some scenarios, the exact layout of the tensor may not be able
+   * to be replicated due to calling `virtual_*()` functions after construction;
+   * however, this function will provide a memory layout that will produce the
+   * same `packed_dim_` as this tensor.
+   */
+  utils::GPUMemoryLayout estimate_memory_layout() const;
+
+  inline int32_t packed_dim() const {
+    return packed_dim_;
   }
 
-  inline int32_t packed_dim_whcn_idx() const {
-    return static_cast<int32_t>(memory_layout_);
+  /*
+   * Returns the WHCN index of the dimension that is used to concatenate batches
+   * as an int32_t.
+   */
+  inline int32_t concat_dim() const {
+    return utils::safe_downcast<int32_t>(axis_map_.at(3));
   }
 
   inline const std::vector<int64_t>& sizes() const {
@@ -404,6 +427,29 @@ class vTensor final {
 
   inline const std::vector<int64_t>& axis_map() const {
     return axis_map_;
+  }
+
+  /*
+   * Returns a single int32_t that contains the values of the axis map and the
+   * packed dimension packed into a single int32_t, such that it can be used as
+   * a specialization constant in a compute shader. This allows for the SPIR-V
+   * to bytecode compilation to perform compile-time unfolding on the axis map.
+   * Each element of the axis map and the value of the packed dimension take up
+   * 4 bits in the packed int32_t.
+   */
+  inline int32_t hashed_layout() const {
+    return axis_map_.at(0) + (axis_map_.at(1) << 4) + (axis_map_.at(2) << 8) +
+        (axis_map_.at(3) << 12) + (packed_dim_ << 16);
+  }
+
+  /*
+   * Return true if the tensor's axis map is {0, 1, 2, concat_dim}. This means
+   * that the width dim is mapped to the width axis of the texture, the height
+   * dim is mapped to the height axis of the texture, the channels dim is mapped
+   * to the depth axis of the texture.
+   */
+  inline bool has_standard_axis_map() const {
+    return axis_map_.at(0) == 0 && axis_map_.at(1) == 1 && axis_map_.at(2) == 2;
   }
 
   inline const std::vector<int64_t>& strides() const {
@@ -430,24 +476,8 @@ class vTensor final {
   const vkapi::BufferBindInfo strides_ubo();
 
   /*
-   * Returns a GPU buffer containing the texture axis mapping for each dimension
-   * of the tensor, in WHCN dimension order.
-   */
-  const vkapi::BufferBindInfo axis_map_ubo();
-
-  /*
-   * Returns a GPU buffer containing the virtual image extents of the tensor.
-   * Since a tensor can be resized with the virtual_resize() function, this
-   * GPU buffer contains the image extents of the tensor calculated using the
-   * virtual_resize() function. This allows shaders to exit early if they are
-   * working outside the limits of the texture.
-   */
-  const vkapi::BufferBindInfo texture_limits_ubo();
-
-  /*
-   * Returns a GPU buffer containing the logical image extents of the tensor.
-   * It contains the same data as texture_limits_ubo(), but with the data
-   * re-ordered. See the comments for logical_extents() for more context.
+   * Returns a GPU buffer containing the logical limits of the tensor. See the
+   * comments for logical_limits() for more context.
    */
   const vkapi::BufferBindInfo logical_limits_ubo();
 
@@ -455,10 +485,6 @@ class vTensor final {
    * Returns the number of elements in the buffer used to store the tensor.
    */
   const vkapi::BufferBindInfo numel_ubo();
-
-  inline const utils::ivec3 texture_limits() const {
-    return texture_limits_.limits;
-  }
 
   inline size_t numel() const {
     return numel_;
@@ -517,10 +543,18 @@ class vTensor final {
    *
    * This function can only be used for buffer-backed tensors, since texture
    * backed buffers cannot change dimensionality or memory layout.
+   *
+   * TODO(ssjia): delete this API. prefer functions such as virtual_transpose
+   * instead.
    */
   void virtual_reconfigure(
       const std::vector<int64_t>& new_sizes,
       const std::vector<int64_t>& new_dim_order);
+
+  /*
+   * Set all metadata of this tensor to match the metadata of another tensor.
+   */
+  void virtual_clone(const vTensor& other);
 
   /*
    * Perform a virtual resize of the vTensor by modifying the size metadata that
@@ -531,10 +565,9 @@ class vTensor final {
   void virtual_resize(const std::vector<int64_t>& new_sizes);
 
   /*
-   * Discard the underlying VkImage or VkBuffer and re-allocate based on new
-   * tensor sizes
+   * Transpose the tensor in-place by updating its metadata.
    */
-  void reallocate(const std::vector<int64_t>& new_sizes);
+  void virtual_transpose(const int64_t dim0, const int64_t dim1);
 
   /*
    * Check if this vTensor instance is a view of another vTensor instance
