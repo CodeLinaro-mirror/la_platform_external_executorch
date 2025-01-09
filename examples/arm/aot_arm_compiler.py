@@ -273,7 +273,6 @@ def get_compile_spec(
                 memory_mode=memory_mode,
                 extra_flags="--debug-force-regor --output-format=raw --verbose-operators --verbose-cycle-estimate",
             )
-            .set_quantize_io(True)
             .set_input_order(reorder_inputs)
         )
     elif "ethos-u85" in target:
@@ -285,7 +284,6 @@ def get_compile_spec(
                 memory_mode=memory_mode,
                 extra_flags="--output-format=raw --verbose-operators --verbose-cycle-estimate",
             )
-            .set_quantize_io(True)
             .set_input_order(reorder_inputs)
         )
 
