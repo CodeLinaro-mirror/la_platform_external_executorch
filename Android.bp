@@ -4,8 +4,12 @@ cc_library {
         "extension/data_loader/file_data_loader.cpp",
         "extension/data_loader/mmap_data_loader.cpp",
         "extension/evalue_util/print_evalue.cpp",
+        "extension/module/*.cpp",
         "extension/runner_util/inputs.cpp",
         "extension/runner_util/inputs_portable.cpp",
+        "extension/training/module/training_module.cpp",
+        "extension/training/optimizer/sgd.cpp",
+        "extension/tensor/*.cpp",
         ":executorch_portable_ops_gen_cpp",
         "kernels/portable/cpu/*.cpp",
         "kernels/portable/cpu/pattern/*.cpp",
@@ -51,6 +55,18 @@ cc_library {
 cc_binary {
     name: "executor_runner",
     srcs: ["examples/portable/executor_runner/executor_runner.cpp"],
+    static_libs: [
+        "libgflags",
+    ],
+    whole_static_libs: [
+        "libexecutorch_runtime",
+    ],
+    host_supported: true,
+}
+
+cc_binary {
+    name: "train_runner",
+    srcs: ["extension/training/examples/XOR/train.cpp"],
     static_libs: [
         "libgflags",
     ],
@@ -167,8 +183,6 @@ cc_library_shared {
     srcs: [
         "extension/android/jni/jni_layer.cpp",
         "extension/android/jni/log.cpp",
-        "extension/module/*.cpp",
-        "extension/tensor/*.cpp",
     ],
     header_libs: [
         "jni_headers",
