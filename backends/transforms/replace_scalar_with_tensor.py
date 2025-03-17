@@ -24,10 +24,12 @@ class ReplaceScalarWithTensorArgPass(ExportPass):
         exir_ops.edge.aten.sub.Scalar: exir_ops.edge.aten.sub.Tensor,
         exir_ops.edge.aten.mul.Scalar: exir_ops.edge.aten.mul.Tensor,
         exir_ops.edge.aten.div.Scalar: exir_ops.edge.aten.div.Tensor,
+        exir_ops.edge.aten.eq.Scalar: exir_ops.edge.aten.eq.Tensor,
         torch.ops.aten.add.Scalar: torch.ops.aten.add.Tensor,
         torch.ops.aten.sub.Scalar: torch.ops.aten.sub.Tensor,
         torch.ops.aten.mul.Scalar: torch.ops.aten.mul.Tensor,
         torch.ops.aten.div.Scalar: torch.ops.aten.div.Tensor,
+        torch.ops.aten.eq.Scalar: torch.ops.aten.eq.Tensor,
     }
 
     def get_replacement(self, op, args, kwargs, meta):
