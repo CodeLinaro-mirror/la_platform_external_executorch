@@ -14,6 +14,7 @@ from executorch.backends.arm._passes.annotate_decomposed_matmul import (
     AnnotateDecomposedMatmulPass,
 )
 from executorch.backends.arm._passes.cast_int64_pass import CastInt64ToInt32Pass
+from executorch.backends.arm._passes.cast_to_int32_pass import CastToInt32Pass
 from executorch.backends.arm._passes.conv1d_unsqueeze_pass import Conv1dUnsqueezePass
 from executorch.backends.arm._passes.convert_any_default_dim_dims_pass import (
     ConvertAnyDefaultDimDimsPass,
@@ -118,6 +119,8 @@ class ArmPassManager(PassManager):
         self.add_pass(ConvertToClampPass())
         self.add_pass(ConvertMinMaxPass())
         self.add_pass(ConvertAnyDefaultDimDimsPass())
+        if isinstance(self.tosa_spec, Tosa_0_80) and self.tosa_spec.is_U55_subset:
+            self.add_pass(CastToInt32Pass())
 
         self.add_pass(ReplaceScalarWithTensorArgPass())
         self.add_pass(AnnotateDecomposedMatmulPass())
