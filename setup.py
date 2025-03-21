@@ -107,11 +107,20 @@ class ShouldBuild:
 
     @classmethod
     def pybindings(cls) -> bool:
-        return cls._is_cmake_arg_enabled("EXECUTORCH_BUILD_PYBIND", default=False)
+        user_defined = _cmake_args_defines().get("EXECUTORCH_BUILD_PYBIND")
+        if user_defined is not None:
+            return ShouldBuild._is_truthy(user_defined)
+        # If an explicit binding is enabled, then turn it on
+        if ShouldBuild.coreml():
+            return True
+        return False
 
     @classmethod
     def coreml(cls) -> bool:
-        return cls._is_env_enabled("EXECUTORCH_BUILD_COREML", default=False)
+        return cls._is_cmake_arg_enabled(
+            "EXECUTORCH_BUILD_COREML",
+            default=platform.system() == "Darwin",
+        )
 
     @classmethod
     def training(cls) -> bool:
@@ -811,15 +820,6 @@ def get_ext_modules() -> List[Extension]:
             ]
         )
 
-    if ShouldBuild.pybindings() or ShouldBuild.coreml():
-        ext_modules.append(
-            BuiltExtension(
-                src="coreml_inmemoryfs_pybinding.*",
-                src_dir="backends/apple/coreml",
-                modpath="executorch.backends.apple.coreml.inmemoryfs",
-            )
-        )
-
     if ShouldBuild.pybindings():
         ext_modules.append(
             # Install the prebuilt pybindings extension wrapper for the runtime,
@@ -840,6 +840,14 @@ def get_ext_modules() -> List[Extension]:
                 BuiltExtension(
                     "_training_lib.*",
                     "executorch.extension.training.pybindings._training_lib",
+                )
+            )
+        if ShouldBuild.coreml():
+            ext_modules.append(
+                BuiltExtension(
+                    src="executorchcoreml.*",
+                    src_dir="backends/apple/coreml",
+                    modpath="executorch.backends.apple.coreml.executorchcoreml",
                 )
             )
     if ShouldBuild.llama_custom_ops():
