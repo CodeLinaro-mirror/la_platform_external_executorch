@@ -91,3 +91,16 @@ macro(set_overridable_option NAME VALUE)
 
   set(${NAME} ${VALUE} CACHE STRING "")
 endmacro()
+
+# Detemine the build preset and load it.
+macro(load_build_preset)
+  if(DEFINED EXECUTORCH_BUILD_PRESET_FILE)
+    announce_configured_options(EXECUTORCH_BUILD_PRESET_FILE)
+    message(STATUS "Loading build preset: ${EXECUTORCH_BUILD_PRESET_FILE}")
+    include(${EXECUTORCH_BUILD_PRESET_FILE})
+  else()
+    # For now, just continue if the preset file is not set. In the future, we will
+    # try to determine a preset file.
+    # message(WARNING "Unable to determine build preset with CMAKE_SYSTEM_NAME (${CMAKE_SYSTEM_NAME}) and CMAKE_SYSTEM_PROCESSOR (${CMAKE_SYSTEM_PROCESSOR}). Using default build settings.")
+  endif()
+endmacro()
