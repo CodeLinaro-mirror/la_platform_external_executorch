@@ -653,10 +653,6 @@ if(EXECUTORCH_BUILD_PYBIND)
   install(TARGETS portable_lib
           LIBRARY DESTINATION executorch/extension/pybindings
   )
-
-  if(EXECUTORCH_BUILD_EXTENSION_TRAINING)
-
-  endif()
 endif()
 
 if(EXECUTORCH_BUILD_EXTENSION_TRAINING)
