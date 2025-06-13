@@ -40,6 +40,7 @@ from executorch.backends.arm._passes import (
     DecomposeRoundPass,
     DecomposeSelectPass,
     DecomposeSiluPass,
+    DecomposeSinhPass,
     DecomposeSoftmaxPass,
     DecomposeSoftmaxUnstablePass,
     DecomposeSqrtPass,
@@ -146,6 +147,7 @@ class ArmPassManager(PassManager):
         self.add_pass(DecomposeRoundPass())
         self.add_pass(DecomposeSqrtPass())
         self.add_pass(ConvertIntPowToMuls())
+        self.add_pass(DecomposeSinhPass())
         self.add_pass(ReplaceScalarWithTensorArgPassTOSAMI())
         self.add_pass(DecomposeEmbeddingPass())
         self.add_pass(FuseQuantizedActivationPass())
