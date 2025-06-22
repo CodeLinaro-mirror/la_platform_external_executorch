@@ -57,7 +57,7 @@ if(CCACHE_PROGRAM)
 else()
   message(STATUS "ccache not found, builds will not be cached")
 endif()
-
+announce_configured_options(CCACHE_PROGRAM)
 # MARK: - Start EXECUTORCH_H12025_BUILD_MIGRATION
 
 include(${PROJECT_SOURCE_DIR}/tools/cmake/common/preset.cmake)
