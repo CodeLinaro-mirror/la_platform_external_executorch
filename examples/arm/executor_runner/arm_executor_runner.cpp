@@ -756,7 +756,6 @@ int main(int argc, const char* argv[]) {
   for (int i = 0; i < outputs.size(); ++i) {
     Tensor t = outputs[i].toTensor();
 #if !defined(SEMIHOSTING)
-#if !defined(ET_BUNDLE_IO)
     // The output might be collected and parsed so printf() is used instead
     // of ET_LOG() here
     for (int j = 0; j < outputs[i].toTensor().numel(); ++j) {
@@ -788,7 +787,6 @@ int main(int argc, const char* argv[]) {
             outputs[i].toTensor().const_data_ptr<int8_t>()[j]);
       }
     }
-#endif
 #else
     char out_filename[255];
     snprintf(out_filename, 255, "%s-%d.bin", output_basename, i);
