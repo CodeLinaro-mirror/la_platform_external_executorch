@@ -151,6 +151,10 @@ ComputeGraph::ComputeGraph(GraphConfig config)
     config_.prepack_threshold_nbytes = 10 * MB;
     config_.prepack_initial_threshold_nbytes = 10 * MB;
   }
+  if (config_.execute_threshold_node_count == 0) {
+    config_.execute_threshold_node_count = 128;
+    config_.execute_initial_threshold_node_count = 64;
+  }
 }
 
 ComputeGraph::~ComputeGraph() {
@@ -700,6 +704,38 @@ utils::uvec3 ComputeGraph::create_local_wg_size(const ValueRef idx) {
   return create_local_wg_size(create_global_wg_size(idx));
 }
 
+void ComputeGraph::bind_tensor_to_descriptor_set(
+    const ValueRef ref,
+    vkapi::PipelineBarrier& pipeline_barrier,
+    const vkapi::MemoryAccessFlags access_type,
+    vkapi::DescriptorSet& descriptor_set,
+    const uint32_t idx) {
+  vTensorPtr tensor = get_tensor(ref);
+  if (tensor->buffer()) {
+    vkapi::VulkanBuffer& buffer = tensor->buffer(
+        pipeline_barrier, vkapi::PipelineStage::COMPUTE, access_type);
+    descriptor_set.bind(idx, buffer);
+  } else {
+    vkapi::VulkanImage& image = tensor->image(
+        pipeline_barrier, vkapi::PipelineStage::COMPUTE, access_type);
+    descriptor_set.bind(idx, image);
+  }
+}
+
+void ComputeGraph::bind_value_to_descriptor_set(
+    const ValueRef ref,
+    vkapi::PipelineBarrier& pipeline_barrier,
+    const vkapi::MemoryAccessFlags access_type,
+    vkapi::DescriptorSet& descriptor_set,
+    const uint32_t idx) {
+  if (val_is_tensor(ref)) {
+    bind_tensor_to_descriptor_set(
+        ref, pipeline_barrier, access_type, descriptor_set, idx);
+  } else if (val_is_staging(ref)) {
+    descriptor_set.bind(idx, get_staging(ref)->buffer());
+  }
+}
+
 void ComputeGraph::copy_into_staging(
     const ValueRef idx,
     const void* data,
@@ -852,16 +888,50 @@ void ComputeGraph::execute() {
     context_->set_cmd(/*reusable = */ true);
 
     context_->cmd_reset_querypool();
+    uint32_t encoded_node_count = 0;
 
     for (std::unique_ptr<ExecuteNode>& node : execute_nodes_) {
       node->encode(this);
+      encoded_node_count++;
+
+      // Threshold is reached when the node count reached
+      // execute_initial_threshold_node_count or if its a multiple of
+      // execute_threshold_node_count.
+      const bool reached_threshold =
+          encoded_node_count >= config_.execute_initial_threshold_node_count &&
+          ((encoded_node_count - config_.execute_initial_threshold_node_count) %
+               config_.execute_threshold_node_count ==
+           0);
+
+      // Create a new command buffer when threashold is reached
+      if (reached_threshold) {
+        context_->submit_cmd_to_gpu(VK_NULL_HANDLE, false);
+        deferred_cmd_list_.emplace_back(std::move(context_->extract_cmd()));
+        context_->set_cmd(true);
+      }
     }
 
+    vkapi::VulkanFence fence = context_->fences().get_fence();
+    context_->submit_cmd_to_gpu(fence.get_submit_handle(), false);
+    fence.wait();
+    context_->fences().return_fence(fence);
     deferred_cmd_list_.emplace_back(std::move(context_->extract_cmd()));
+  } else {
+    submit_deferred_cmds_and_wait();
   }
 
-  submit_deferred_cmds_and_wait();
   execute_count_++;
+}
+
+void ComputeGraph::virtual_clone(const ValueRef dst, const ValueRef src) {
+  get_tensor(dst)->virtual_clone(*get_tensor(src));
+}
+
+void ComputeGraph::virtual_transpose(
+    const ValueRef tensor,
+    const int64_t dim0,
+    const int64_t dim1) {
+  get_tensor(tensor)->virtual_transpose(dim0, dim1);
 }
 
 void ComputeGraph::resize_input(
