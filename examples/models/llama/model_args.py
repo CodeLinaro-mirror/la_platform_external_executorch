@@ -69,6 +69,8 @@ class ModelArgs:
     kv_io_bit_width: Optional[int] = (
         None  # KV cache bit width. This is for QNN backend only for now.
     )
+    # Hybrid models can have layer types different from attention
+    layer_types: Optional[list] = None
 
     def __post_init__(self):
         if self.n_kv_heads is None:
