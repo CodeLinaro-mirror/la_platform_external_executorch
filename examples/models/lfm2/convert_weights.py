@@ -54,7 +54,7 @@ def lfm_2_tune_to_meta(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.T
         else:
             converted_state_dict[new_key] = value
 
-    # If lm_head.weight is not present in state dict, assume tied embeddings (e.g., 0.6b and 4b models)
+    # If lm_head.weight is not present in state dict, assume tied embeddings
     if "lm_head.weight" not in state_dict:
         converted_state_dict["output.weight"] = converted_state_dict[
             "tok_embeddings.weight"
