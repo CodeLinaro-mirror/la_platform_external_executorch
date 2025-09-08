@@ -283,7 +283,7 @@ def build_test_filter(args: argparse.Namespace) -> TestFilter:
 def runner_main():
     args = parse_args()
 
-    # Suppress deprecation warnings for export_for_training, as it generates a
+    # Suppress deprecation warnings for export, as it generates a
     # lot of log spam. We don't really need the warning here.
     warnings.simplefilter("ignore", category=FutureWarning)
 
