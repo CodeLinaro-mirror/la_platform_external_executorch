@@ -24,11 +24,11 @@ VALID_TARGETS=(
 )
 
 # Default models for MCU validation with portable kernels
-DEFAULT_MODELS=(mv2 mv3 lstm)
+DEFAULT_MODELS=(mv2 mv3 lstm resnet18)
 # Available models (on FVP)
-AVAILABLE_MODELS=(mv2 mv3 lstm)
+AVAILABLE_MODELS=(mv2 mv3 lstm resnet18)
 # Add the following models if you want to enable them later (atm they are not working on FVP)
-# edsr w2l ic3 ic4 resnet18 resnet50
+# edsr w2l ic3 ic4 resnet50
 
 # Variables
 TARGET=""
