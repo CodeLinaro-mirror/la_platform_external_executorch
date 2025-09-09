@@ -49,6 +49,7 @@ from executorch.backends.arm._passes import (
     DecomposeEluPass,
     DecomposeEmbeddingPass,
     DecomposeExpm1Pass,
+    DecomposeFloorDividePass,
     DecomposeGeluPass,
     DecomposeGluPass,
     DecomposeGroupedConv,
@@ -241,6 +242,8 @@ class ArmPassManager(PassManager):
         self.add_pass(CastBoolToInt8Pass())
         self.add_pass(DecomposeSinhPass())
         self.add_pass(DecomposeSignPass())
+        self.add_pass(DecomposeFloorDividePass())
+        self.add_pass(DecomposeDivTensorModePass())
         self.add_pass(ReplaceScalarWithTensorByProfilePass())
         self.add_pass(DecomposeRemainderPass())
         self.add_pass(DecomposeDivTensorModePass())
@@ -335,6 +338,7 @@ class ArmPassManager(PassManager):
         self.add_pass(DecomposeAddmmPass())
         self.add_pass(ReplaceScalarWithTensorByProfilePass())
         self.add_pass(DecomposeRemainderPass())
+        self.add_pass(DecomposeFloorDividePass())
         self.add_pass(DecomposeDivTensorModePass())
         self.add_pass(DecomposeAddSubAlphaPass())
         self.add_pass(ScalarsToAttributePass())
