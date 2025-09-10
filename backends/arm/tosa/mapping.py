@@ -57,7 +57,8 @@ def map_dtype(data_type: torch.dtype, tosa_spec: TosaSpecification) -> Any:
 # TODO: other types, can be
 # SymInt, FakeTensor, a List[Union[FakeTensor, SymInt]], or None
 def extract_tensor_meta(meta, tosa_spec: TosaSpecification):
-    assert meta.get("val") is not None
+    if meta.get("val") is None:
+        raise ValueError("Expected node.meta['val'] to be set to a FakeTensor")
     val = meta["val"]
     if type(val) is tuple:
         # TODO: should use first concrete representation
