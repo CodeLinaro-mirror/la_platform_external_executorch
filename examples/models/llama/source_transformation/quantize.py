@@ -119,7 +119,6 @@ def quantize(  # noqa C901
         from torchao.quantization.granularity import PerAxis, PerGroup
         from torchao.quantization.quant_api import (
             Int8DynamicActivationIntxWeightConfig,
-            MappingType,
             quantize_,
         )
         from torchao.utils import unwrap_tensor_subclass
@@ -134,9 +133,9 @@ def quantize(  # noqa C901
                     weight_granularity=(
                         PerAxis(0) if group_size == 0 else PerGroup(group_size)
                     ),
-                    weight_mapping_type=MappingType.SYMMETRIC,
                     # pyre-ignore[6]
                     intx_packing_format="opaque_torchao_auto",
+                    intx_choose_qparams_algorithm="hqq_scale_only",
                 ),
             )
             model = unwrap_tensor_subclass(model)
@@ -170,6 +169,7 @@ def quantize(  # noqa C901
                 # pyre-ignore[16]
                 weight_dtype=torch.int4,
                 weight_granularity=PerGroup(group_size),
+                intx_choose_qparams_algorithm="hqq_scale_only",
             ),
             filter_fn=filter_fn,
         )
@@ -191,6 +191,7 @@ def quantize(  # noqa C901
             # pyre-ignore[16]
             weight_dtype=torch.int4,
             granularity=PerGroup(q_group_size),
+            intx_choose_qparams_algorithm="hqq_scale_only",
         )
         quantize_(model, q_config)
         model = unwrap_tensor_subclass(model)
@@ -596,11 +597,7 @@ class EmbeddingQuantHandler(QuantHandler):
     @torch.no_grad()
     def create_quantized_state_dict(self, packed=False) -> Dict:
         from torchao.quantization.granularity import PerAxis, PerGroup
-        from torchao.quantization.quant_api import (
-            IntxWeightOnlyConfig,
-            MappingType,
-            quantize_,
-        )
+        from torchao.quantization.quant_api import IntxWeightOnlyConfig, quantize_
 
         cur_state_dict = self.mod.state_dict()
 
@@ -627,7 +624,7 @@ class EmbeddingQuantHandler(QuantHandler):
                         if (self.group_size is None or self.group_size == 0)
                         else PerGroup(self.group_size)
                     ),
-                    mapping_type=MappingType.SYMMETRIC,
+                    intx_choose_qparams_algorithm="hqq_scale_only",
                 )
                 quantize_(tmp_model, config, lambda m, fqn: isinstance(m, nn.Embedding))
                 weight = tmp_model.weight.qdata  # pyre-ignore[16]
@@ -877,7 +874,6 @@ def _load_torchao_aten_lib(libname):
 def set_8da4w_computation_dtype(
     module: nn.Module, computation_dtype: torch.dtype
 ) -> nn.Module:
-
     from torchao.quantization.linear_quant_modules import Int8DynActInt4WeightLinear
 
     def _set_8da4w_computation_dtype(module: nn.Module, dtype: torch.dtype) -> None:
