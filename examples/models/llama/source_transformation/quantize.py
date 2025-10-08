@@ -135,6 +135,7 @@ def quantize(  # noqa C901
                     ),
                     # pyre-ignore[6]
                     intx_packing_format="opaque_torchao_auto",
+                    # pyre-ignore[6]
                     intx_choose_qparams_algorithm="hqq_scale_only",
                 ),
             )
@@ -169,6 +170,7 @@ def quantize(  # noqa C901
                 # pyre-ignore[16]
                 weight_dtype=torch.int4,
                 weight_granularity=PerGroup(group_size),
+                # pyre-ignore[6]
                 intx_choose_qparams_algorithm="hqq_scale_only",
             ),
             filter_fn=filter_fn,
@@ -191,6 +193,7 @@ def quantize(  # noqa C901
             # pyre-ignore[16]
             weight_dtype=torch.int4,
             granularity=PerGroup(q_group_size),
+            # pyre-ignore[6]
             intx_choose_qparams_algorithm="hqq_scale_only",
         )
         quantize_(model, q_config)
@@ -624,6 +627,7 @@ class EmbeddingQuantHandler(QuantHandler):
                         if (self.group_size is None or self.group_size == 0)
                         else PerGroup(self.group_size)
                     ),
+                    # pyre-ignore[6]
                     intx_choose_qparams_algorithm="hqq_scale_only",
                 )
                 quantize_(tmp_model, config, lambda m, fqn: isinstance(m, nn.Embedding))
