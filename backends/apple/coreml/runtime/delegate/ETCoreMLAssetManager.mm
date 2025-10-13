@@ -187,9 +187,10 @@ NSURL * _Nullable create_directory_if_needed(NSURL *dirURL,
     }
         
     // Try to create the directory and its parents.
+    NSDictionary *attrs = @{ NSFileProtectionKey : NSFileProtectionCompleteUntilFirstUserAuthentication };
     if (![fm createDirectoryAtURL:dirURL
        withIntermediateDirectories:YES
-                        attributes:nil
+                        attributes:attrs
                              error:error]) {
         // Lost a race and creation failed because something already exists, check if it's a directory.
         isDir = NO;
