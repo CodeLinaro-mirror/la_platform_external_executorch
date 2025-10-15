@@ -207,7 +207,7 @@ NSURL * _Nullable create_directory_if_needed(NSURL *dirURL,
     return dirURL;
 }
 
-bool is_empty_directory_or_not_exist(NSURL *dirURL, NSFileManager *fm, NSError * __autoreleasing *error) {
+bool is_missing_or_empty_directory(NSURL *dirURL, NSFileManager *fm, NSError * __autoreleasing *error) {
     NSString *dirPath = dirURL.path;
     BOOL isDir = NO;
     BOOL doesFileExist = dirPath && [fm fileExistsAtPath:dirPath isDirectory:&isDir];
@@ -350,7 +350,7 @@ get_assets_to_remove(ModelAssetsStore& store,
     (void)[fileManager setAttributes:attrs ofItemAtPath:managedStagingDirectoryURL.path error:nil]; // best-effort
 
     // If directory is empty then purge the stores
-    if (::is_empty_directory_or_not_exist(managedAssetsDirectoryURL, fileManager, nil)) {
+    if (::is_missing_or_empty_directory(managedAssetsDirectoryURL, fileManager, nil)) {
         assetsMetaStore.impl()->purge(ec);
         assetsStore.impl()->purge(ec);
     }
