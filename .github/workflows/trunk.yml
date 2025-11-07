@@ -949,6 +949,8 @@ jobs:
 
         # Setup executorch
         PYTHON_EXECUTABLE=python bash .ci/scripts/setup-linux.sh --build-tool "${BUILD_TOOL}"
+        echo Installing llama reqs...
+        pwd
         # Install requirements for export_llama
         PYTHON_EXECUTABLE=python bash examples/models/llama/install_requirements.sh
         # Test llama2
