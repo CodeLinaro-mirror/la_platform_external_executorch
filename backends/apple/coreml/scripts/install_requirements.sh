@@ -12,7 +12,8 @@ SCRIPT_DIR_PATH="$(
 
 # TODO(jathu): remove the need to fetch coremltools to build deps for coreml_executor_runner.
 # Keep this version in sync with: pyproject.toml
-COREMLTOOLS_VERSION="9.0"
+COREMLTOOLS_VERSION="9.0b"
+
 
 red=`tput setaf 1`
 green=`tput setaf 2`
