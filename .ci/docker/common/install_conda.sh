@@ -35,7 +35,9 @@ install_miniconda() {
 install_python() {
   pushd /opt/conda
   # Install the selected Python version for CI jobs
-  as_ci_user conda create -n "py_${PYTHON_VERSION}" -y --file /opt/conda/conda-env-ci.txt python="${PYTHON_VERSION}"
+  # pip is pinned to 25.2, as 25.3 removes the --no-use-pep517 arg to the install subcommand,
+  # and this is required to install torchaudio and torchvision.
+  as_ci_user conda create -n "py_${PYTHON_VERSION}" -y --file /opt/conda/conda-env-ci.txt python="${PYTHON_VERSION}" pip=25.2
 
   # From https://github.com/pytorch/pytorch/blob/main/.ci/docker/common/install_conda.sh
   if [[ $(uname -m) == "aarch64" ]]; then

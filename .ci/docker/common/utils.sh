@@ -17,7 +17,10 @@ conda_install() {
   # Ensure that the install command don't upgrade/downgrade Python
   # This should be called as
   #   conda_install pkg1 pkg2 ... [-c channel]
-  as_ci_user conda install -q -n "py_${PYTHON_VERSION}" -y python="${PYTHON_VERSION}" "$@"
+  #
+  # pip is pinned to 25.2, as 25.3 removes the --no-use-pep517 arg to the install subcommand,
+  # and this is required to install torchaudio and torchvision.
+  as_ci_user conda install -q -n "py_${PYTHON_VERSION}" -y python="${PYTHON_VERSION}" pip=25.2 "$@"
 }
 
 conda_run() {
