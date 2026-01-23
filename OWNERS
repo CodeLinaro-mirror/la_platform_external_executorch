@@ -1,2 +1,2 @@
+# Please go through go/android-3p to re-import this project.
 include platform/system/core:main:/janitors/OWNERS
-include platform/system/core:/janitors/OWNERS #{LAST_RESORT_SUGGESTION}
