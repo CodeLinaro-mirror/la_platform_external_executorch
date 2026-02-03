@@ -21,7 +21,6 @@ from itertools import count
 from typing import cast, Dict, final, List
 
 import torch
-
 import tosa_serializer as ts
 from executorch.backends.arm.common.arm_compile_spec import ArmCompileSpec
 from executorch.backends.arm.common.debug import debug_fail, debug_tosa_dump
@@ -334,7 +333,8 @@ class TOSABackend(BackendDetails):
 
         """
         tosa_spec = compile_spec.tosa_spec
-        node_to_id_map = _annotate_external_ids(graph_module.graph)
+        # node_to_id_map is unused while _sort_outputs is disabled (MLETORCH-1266)
+        _annotate_external_ids(graph_module.graph)
         artifact_path = compile_spec.get_intermediate_path()
         output_order_workaround = compile_spec.get_output_order_workaround()
 
@@ -350,11 +350,16 @@ class TOSABackend(BackendDetails):
 
         node_visitors = get_node_visitors(edge_program, tosa_spec, debug_hook)
 
+        # _sort_outputs is intentionally disabled: it reorders the TOSA
+        # flatbuffer outputs but the runner reads output shapes from
+        # original_module (a pre-preprocess copy), creating a mismatch.
+        # The TOSA reference model preserves flatbuffer order, so no
+        # sorting is needed.
         if output_order_workaround:
-            logger.debug("Re-sorting outputs during TOSA lowering.")
-            graph_module = _sort_outputs(graph_module, node_to_id_map)
-        else:
-            logger.debug("No re-sorting outputs (workaround) during TOSA lowering.")
+            logger.debug(
+                "output_order_workaround is set but _sort_outputs is "
+                "disabled — see MLETORCH-1266."
+            )
 
         if submodule_name is not None:
             tosa_graph.startRegion(submodule_name)
