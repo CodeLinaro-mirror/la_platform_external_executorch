@@ -7,11 +7,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "cortex_m_ops_common.h"
-
-extern "C" {
 #include "arm_nnfunctions.h"
-}
+#include "cortex_m_ops_common.h"
 
 namespace cortex_m {
 namespace native {

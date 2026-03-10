@@ -5,16 +5,12 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include "arm_nnfunctions.h"
 #include "cortex_m_ops_common.h"
 
 #include <cmath>
 #include <cstdint>
 #include <limits>
-
-// Include CMSIS-NN headers with C linkage
-extern "C" {
-#include "arm_nnfunctions.h"
-}
 
 namespace cortex_m {
 namespace native {
