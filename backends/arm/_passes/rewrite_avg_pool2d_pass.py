@@ -34,7 +34,7 @@ class RewriteAvgPool2dPass(ArmPass):
         x = args[0]
         pad_h, pad_w = args[3]
         # Make sure pad corresponds to TOSA
-        pad = [pad_h, pad_w, pad_h, pad_w]
+        pad = [pad_h, pad_h, pad_w, pad_w]
 
         _, _, h, w = x.data.shape
         kernel_h, kernel_w = args[1]
