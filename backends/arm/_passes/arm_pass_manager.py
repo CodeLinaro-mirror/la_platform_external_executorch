@@ -117,6 +117,7 @@ from executorch.backends.arm._passes import (
     InsertConstShapesPass,
     InsertControlFlowRescalesPass,
     InsertDataLayoutCastsPass,
+    InsertDynamicPaddingPass,
     InsertInt32CastsAfterInt64PlaceholdersPass,
     InsertRescaleInt32Pass,
     InsertRescalePass,
@@ -628,6 +629,7 @@ class ArmPassManager(ExportedProgramPassManager):
             [
                 CastInt64BuffersToInt32Pass(exported_program),
                 FuseEqualPlaceholdersPass(exported_program),
+                InsertDynamicPaddingPass(),
                 FuseConsecutiveConcatShapesPass(),
                 EnsureUniqueOutputNodesPass(),
                 RemoveNoopPass(),
