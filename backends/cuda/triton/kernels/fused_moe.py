@@ -702,30 +702,74 @@ def moe_align_block_size(
 # Autotune configs for batched GEMM1 (gate+up projection).
 # BLOCK_M is fixed at _BATCHED_BLOCK_M; only N and K are tuned.
 _BATCHED_GEMM1_CONFIGS = [
-    triton.Config({"BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 64, "GROUP_SIZE_M": 8}, num_warps=4, num_stages=3),
-    triton.Config({"BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_stages=3),
-    triton.Config({"BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 16}, num_warps=4, num_stages=3),
-    triton.Config({"BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 64, "GROUP_SIZE_M": 8}, num_warps=4, num_stages=3),
-    triton.Config({"BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 64, "GROUP_SIZE_M": 16}, num_warps=4, num_stages=3),
     triton.Config(
-        {"BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_stages=2
+        {"BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 64, "GROUP_SIZE_M": 8},
+        num_warps=4,
+        num_stages=3,
     ),
     triton.Config(
-        {"BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 16}, num_warps=4, num_stages=2
+        {"BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8},
+        num_warps=4,
+        num_stages=3,
+    ),
+    triton.Config(
+        {"BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 16},
+        num_warps=4,
+        num_stages=3,
+    ),
+    triton.Config(
+        {"BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 64, "GROUP_SIZE_M": 8},
+        num_warps=4,
+        num_stages=3,
+    ),
+    triton.Config(
+        {"BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 64, "GROUP_SIZE_M": 16},
+        num_warps=4,
+        num_stages=3,
+    ),
+    triton.Config(
+        {"BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8},
+        num_warps=4,
+        num_stages=2,
+    ),
+    triton.Config(
+        {"BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 16},
+        num_warps=4,
+        num_stages=2,
     ),
 ]
 
 # Autotune configs for batched GEMM2 (down projection + SiLU).
 _BATCHED_GEMM2_CONFIGS = [
-    triton.Config({"BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 64, "GROUP_SIZE_M": 8}, num_warps=4, num_stages=3),
-    triton.Config({"BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 64, "GROUP_SIZE_M": 8}, num_warps=4, num_stages=3),
-    triton.Config({"BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 64, "GROUP_SIZE_M": 16}, num_warps=4, num_stages=3),
-    triton.Config({"BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_stages=2),
     triton.Config(
-        {"BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_stages=2
+        {"BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 64, "GROUP_SIZE_M": 8},
+        num_warps=4,
+        num_stages=3,
     ),
     triton.Config(
-        {"BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 16}, num_warps=4, num_stages=2
+        {"BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 64, "GROUP_SIZE_M": 8},
+        num_warps=4,
+        num_stages=3,
+    ),
+    triton.Config(
+        {"BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 64, "GROUP_SIZE_M": 16},
+        num_warps=4,
+        num_stages=3,
+    ),
+    triton.Config(
+        {"BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8},
+        num_warps=4,
+        num_stages=2,
+    ),
+    triton.Config(
+        {"BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8},
+        num_warps=4,
+        num_stages=2,
+    ),
+    triton.Config(
+        {"BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 16},
+        num_warps=4,
+        num_stages=2,
     ),
 ]
 
@@ -831,7 +875,8 @@ def _fused_moe_batched_kernel(
                     B_scale
                     + expert_id * stride_bse
                     + offs_n[None, :] * stride_bsn
-                    + ((offs_k[:, None] + BLOCK_SIZE_K * k_step) // group_size) * stride_bsk
+                    + ((offs_k[:, None] + BLOCK_SIZE_K * k_step) // group_size)
+                    * stride_bsk
                 )
                 b_scale = tl.load(
                     scale_ptrs, mask=k_mask[:, None] & n_mask[None, :], other=0.0
@@ -967,7 +1012,8 @@ def _fused_moe_batched_int8_kernel(
                     B_scale
                     + expert_id * stride_bse
                     + offs_n[None, :] * stride_bsn
-                    + ((offs_k[:, None] + BLOCK_SIZE_K * k_step) // group_size) * stride_bsk
+                    + ((offs_k[:, None] + BLOCK_SIZE_K * k_step) // group_size)
+                    * stride_bsk
                 )
                 b_scale = tl.load(
                     scale_ptrs, mask=k_mask[:, None] & n_mask[None, :], other=0.0
@@ -1085,7 +1131,8 @@ def _fused_moe_silu_batched_kernel(
                     B_scale
                     + expert_id * stride_bse
                     + offs_n[None, :] * stride_bsn
-                    + ((offs_k[:, None] + BLOCK_SIZE_K * k_step) // group_size) * stride_bsk
+                    + ((offs_k[:, None] + BLOCK_SIZE_K * k_step) // group_size)
+                    * stride_bsk
                 )
                 b_scale = tl.load(
                     scale_ptrs, mask=k_mask[:, None] & n_mask[None, :], other=0.0
@@ -1227,7 +1274,8 @@ def _fused_moe_silu_batched_int8_kernel(
                     B_scale
                     + expert_id * stride_bse
                     + offs_n[None, :] * stride_bsn
-                    + ((offs_k[:, None] + BLOCK_SIZE_K * k_step) // group_size) * stride_bsk
+                    + ((offs_k[:, None] + BLOCK_SIZE_K * k_step) // group_size)
+                    * stride_bsk
                 )
                 b_scale = tl.load(
                     scale_ptrs, mask=k_mask[:, None] & n_mask[None, :], other=0.0

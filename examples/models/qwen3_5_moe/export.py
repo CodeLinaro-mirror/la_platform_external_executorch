@@ -886,6 +886,7 @@ def _export_cuda(model, config, args):
         ExecutorchBackendConfig,
         to_edge_transform_and_lower,
     )
+    from executorch.exir.backend.compile_spec_schema import CompileSpec
     from executorch.exir.passes import MemoryPlanningPass
     from torch.export import Dim, export
 
@@ -959,6 +960,7 @@ def _export_cuda(model, config, args):
                 CudaPartitioner(
                     [
                         CudaBackend.generate_method_name_compile_spec("decode"),
+                        CompileSpec("low_memory_mode", b"ON"),
                     ]
                 )
             ],
@@ -966,6 +968,7 @@ def _export_cuda(model, config, args):
                 CudaPartitioner(
                     [
                         CudaBackend.generate_method_name_compile_spec("prefill"),
+                        CompileSpec("low_memory_mode", b"ON"),
                     ]
                 )
             ],
