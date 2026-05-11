@@ -441,6 +441,8 @@ class SlimTensor {
    */
   SlimTensor& copy_(const SlimTensor& other) {
     ET_CHECK_MSG(
+        this->sizes() == other.sizes(), "copy_: sizes of tensors must match");
+    ET_CHECK_MSG(
         this->numel() == other.numel(), "copy_: numel of tensors must match");
     ET_CHECK_MSG(this->dtype() == other.dtype(), "copy_: dtype must match");
 
@@ -463,29 +465,35 @@ class SlimTensor {
 
     std::vector<int64_t> counter(this->dim(), 0);
     for (size_t i = 0; i < this->numel(); i++) {
-      // Compute src offset in elements
       int64_t src_offset = 0;
-      for (size_t d = 0; d < other.dim(); d++) {
+      int64_t dst_offset = 0;
+      for (size_t d = 0; d < this->dim(); d++) {
+        int64_t dst_term = 0;
+        ET_CHECK_MSG(
+            !::c10::mul_overflows(counter[d], this->stride(d), &dst_term) &&
+                !::c10::add_overflows(dst_offset, dst_term, &dst_offset),
+            "copy_: dst offset computation overflow");
         src_offset += counter[d] * other.stride(d);
       }
 
-      // Compute dst offset in elements
-      int64_t dst_offset = 0;
-      for (size_t d = 0; d < this->dim(); d++) {
-        dst_offset += counter[d] * this->stride(d);
-      }
+      size_t dst_byte_offset = 0;
+      ET_CHECK_MSG(
+          dst_offset >= 0 &&
+              !::c10::mul_overflows(
+                  static_cast<size_t>(dst_offset), elem_size, &dst_byte_offset),
+          "copy_: dst byte offset overflow");
+      const size_t src_byte_offset =
+          static_cast<size_t>(src_offset) * elem_size;
 
       // Copy elem_size bytes from src to dst
       if (this->device().is_cpu() && other.device().is_cpu()) {
         std::memcpy(
-            dst_data + dst_offset * elem_size,
-            src_data + src_offset * elem_size,
-            elem_size);
+            dst_data + dst_byte_offset, src_data + src_byte_offset, elem_size);
       } else if (this->device().is_cuda() || other.device().is_cuda()) {
 #if defined(CUDA_AVAILABLE)
         DeviceTraits<c10::DeviceType::CUDA>::memcpy(
-            dst_data + dst_offset * elem_size,
-            src_data + src_offset * elem_size,
+            dst_data + dst_byte_offset,
+            src_data + src_byte_offset,
             elem_size,
             device(), // dst device
             other.device() // src device
