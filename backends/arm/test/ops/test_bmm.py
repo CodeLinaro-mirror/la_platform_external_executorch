@@ -1,4 +1,4 @@
-# Copyright 2024-2025 Arm Limited and/or its affiliates.
+# Copyright 2024-2026 Arm Limited and/or its affiliates.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -12,9 +12,11 @@ import torch
 
 from executorch.backends.arm.test import common
 
+from executorch.backends.arm.quantizer import get_symmetric_a16w8_quantization_config
 from executorch.backends.arm.test.tester.test_pipeline import (
     EthosU55PipelineINT,
     EthosU85PipelineINT,
+    OpNotSupportedPipeline,
     TosaPipelineFP,
     TosaPipelineINT,
     VgfPipeline,
@@ -22,9 +24,6 @@ from executorch.backends.arm.test.tester.test_pipeline import (
 
 aten_op_bmm = "torch.ops.aten.bmm.default"
 exir_op_bmm = "executorch_exir_dialects_edge__ops_aten_bmm_default"
-
-aten_op_mm = "torch.ops.aten.matmul.default"
-exir_op_mm = "executorch_exir_dialects_edge__ops_aten_matmul_default"
 
 input_t1 = Tuple[torch.Tensor, torch.Tensor]  # Input x
 
@@ -189,5 +188,36 @@ def test_bmm_vgf_quant_single_input(test_data: input_t1):
         aten_op_bmm,
         exir_op_bmm,
         quantize=True,
+    )
+    pipeline.run()
+
+
+@common.parametrize("test_data", BMM.test_data_generators)
+@common.XfailIfNoCorstone300
+def test_bmm_a16w8_u55_INT(test_data: input_t1):
+    """U55 does not support bmm with INT16 inputs. Verify bmm is rejected."""
+    pipeline = OpNotSupportedPipeline[input_t1](
+        BMM(),
+        test_data(),
+        non_delegated_ops={exir_op_bmm: 1},
+        n_expected_delegates=0,
+        u55_subset=True,
+        quantize=True,
+        tosa_extensions=["int16"],
+    )
+    pipeline.quantizer.set_global(get_symmetric_a16w8_quantization_config())
+    pipeline.run()
+
+
+@common.parametrize("test_data", BMM.test_data_generators)
+@common.XfailIfNoCorstone320
+def test_bmm_a16w8_u85_INT(test_data: input_t1):
+    pipeline = EthosU85PipelineINT[input_t1](
+        BMM(),
+        test_data(),
+        aten_op_bmm,
+        exir_op_bmm,
+        a16w8_quantization=True,
+        symmetric_io_quantization=True,
     )
     pipeline.run()
