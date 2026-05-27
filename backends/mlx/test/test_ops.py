@@ -5621,6 +5621,13 @@ class QuantizedLinearTest(OpTestCase):
             cls(group_size=128),
             cls(qdtype=torch.int2),
             cls(qdtype=torch.int8),
+            # group_size=16: exercises the runtime dequantize+matmul fallback
+            # path (MLX Metal kernels only support group_size >= 32 for
+            # quantized_matmul, so smaller group sizes are handled via
+            # on-device dequantize + transpose + matmul).
+            cls(qdtype=torch.int8, group_size=16),
+            cls(qdtype=torch.int4, group_size=16),
+            cls(qdtype=torch.int8, group_size=16, bias=False),
         ]
 
     def create_model(self) -> nn.Module:

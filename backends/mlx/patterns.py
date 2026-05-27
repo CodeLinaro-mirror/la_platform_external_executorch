@@ -37,6 +37,7 @@ from executorch.backends.mlx.pattern_utils import (
 )
 from executorch.backends.mlx.serialization.mlx_graph_schema import (
     AddIntNode,
+    AddmmNode,
     AddNode,
     AsTypeNode,
     DequantizeNode,
@@ -52,6 +53,7 @@ from executorch.backends.mlx.serialization.mlx_graph_schema import (
     SubtractIntNode,
     SymSizeNode,
     TakeNode,
+    TransposeNode,
 )
 from torch.export.exported_program import ExportedProgram
 from torch.fx.node import Node
@@ -883,6 +885,12 @@ class QuantizedLinearHandler(PatternHandler):
             out_dtype=out_dtype,
         )
 
+    # MLX's quantized_matmul Metal kernels are only instantiated for
+    # group_size in {32, 64, 128}. For smaller group sizes (e.g. GGUF
+    # Q6_K with group_size=16), emit DequantizeNode + matmul instead.
+    # Weights stay packed in the .pte file; dequantized on-device.
+    _MIN_FUSED_GROUP_SIZE = 32
+
     def __call__(self, P: MLXProgramBuilder, n: Node) -> Slot:
         assert n == self.head
 
@@ -908,19 +916,50 @@ class QuantizedLinearHandler(PatternHandler):
         x_dtype = x_node.meta["val"].dtype
         needs_cast = self.out_dtype != x_dtype
 
-        P.emit(
-            QuantizedMatmulNode(
-                x=P.slot_to_tid(x_slot),
-                w=P.slot_to_tid(w),
-                scales=P.slot_to_tid(scale_slot),
-                out=P.slot_to_tid(out),
-                biases=P.slot_to_tid(biases),
-                group_size=self.group_size,
-                bits=self.bits,
-                mode="affine",
-                transpose=True,
+        if self.group_size >= self._MIN_FUSED_GROUP_SIZE:
+            P.emit(
+                QuantizedMatmulNode(
+                    x=P.slot_to_tid(x_slot),
+                    w=P.slot_to_tid(w),
+                    scales=P.slot_to_tid(scale_slot),
+                    out=P.slot_to_tid(out),
+                    biases=P.slot_to_tid(biases),
+                    group_size=self.group_size,
+                    bits=self.bits,
+                    mode="affine",
+                    transpose=True,
+                )
             )
-        )
+        else:
+            out_scalar_type = torch_dtype_to_scalar_type(self.out_dtype)
+            _, w_deq = P.make_tmp_slot()
+            P.emit(
+                DequantizeNode(
+                    w=P.slot_to_tid(w),
+                    scales=P.slot_to_tid(scale_slot),
+                    out=P.slot_to_tid(w_deq),
+                    biases=P.slot_to_tid(biases),
+                    group_size=self.group_size,
+                    bits=self.bits,
+                    mode="affine",
+                    dtype=out_scalar_type,
+                )
+            )
+            _, w_t = P.make_tmp_slot()
+            P.emit(
+                TransposeNode(
+                    x=P.slot_to_tid(w_deq),
+                    out=P.slot_to_tid(w_t),
+                    perm=[1, 0],
+                )
+            )
+            P.emit(
+                AddmmNode(
+                    mat1=P.slot_to_tid(x_slot),
+                    mat2=P.slot_to_tid(w_t),
+                    out=P.slot_to_tid(out),
+                )
+            )
 
         if has_bias:
             P.emit(
@@ -931,7 +970,7 @@ class QuantizedLinearHandler(PatternHandler):
                 )
             )
 
-        if needs_cast:
+        if needs_cast and self.group_size >= self._MIN_FUSED_GROUP_SIZE:
             P.emit(
                 AsTypeNode(
                     x=P.slot_to_tid(out),

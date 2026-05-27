@@ -22,7 +22,7 @@ import torch.nn as nn
 
 from .pack import ModulePackerFn, pack_model  # noqa: F401
 
-_MLX_SUPPORTED_GROUP_SIZES = (128, 64, 32)
+_MLX_SUPPORTED_GROUP_SIZES = (128, 64, 32, 16)
 
 
 # ---------------------------------------------------------------------------
