@@ -8,7 +8,7 @@ from typing import List
 import torch
 
 from executorch.backends.arm.tosa.dialect.lib import TosaValueError
-from executorch.backends.arm.tosa.dialect.ops_registration import register_fake_tosa_op
+from executorch.backends.arm.tosa.dialect.ops_registration import register_tosa_op
 
 from executorch.backends.arm.tosa.specification import (
     get_context_spec,
@@ -16,7 +16,7 @@ from executorch.backends.arm.tosa.specification import (
 )
 
 
-@register_fake_tosa_op(
+@register_tosa_op(
     "PAD(Tensor input1, SymInt[] padding, *, Scalar value) -> Tensor",  # schema
     (
         TosaSpecification.create_from_string("TOSA-1.0+INT"),
