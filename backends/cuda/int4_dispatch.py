@@ -4,12 +4,14 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""Int4Tensor F.linear dispatch for CUDA — runs at eager / export trace time.
+"""CudaCoalescedInt4Tensor F.linear dispatch for CUDA — runs at eager / export trace time.
 
-This module overrides Int4Tensor's F.linear dispatch so that torch.export
-traces through our custom op and dequant logic instead of torchao's default
-(mslk/tinygemm). The code here executes during eager inference and during
-AOTI export tracing — it does NOT run at .pte runtime.
+This module registers an F.linear dispatch on ``CudaCoalescedInt4Tensor`` (an
+ExecuTorch-internal subclass, see ``coalesced_int4_tensor.py``) so that
+torch.export traces through our custom op and dequant logic. Routing is by
+*type*: stock torchao ``Int4Tensor`` weights are left untouched and keep using
+torchao's default (mslk/tinygemm) path. The code here executes during eager
+inference and during AOTI export tracing — it does NOT run at .pte runtime.
 
 At .pte runtime, the captured graph is executed by the AOTI-generated .so:
   - The custom op ``executorch_cuda::int4_plain_mm`` maps to a C shim that
@@ -27,15 +29,16 @@ recipes (e.g. INT8 edge-layer v_proj/down_proj + INT4 elsewhere) thus keep ALL
 decode linears on a fused dp4a path instead of falling back to the generic
 dequant-to-bf16 + matmul path, which materializes the full weight in HBM.
 
-Import this module before using nn.Linear with Int4Tensor / INT8 weights::
+Import this module before using nn.Linear with CudaCoalescedInt4Tensor / INT8
+weights::
 
     import executorch.backends.cuda.int4_dispatch  # noqa: F401
 """
 
 import torch
 import torch.nn.functional as F
+from executorch.backends.cuda.coalesced_int4_tensor import CudaCoalescedInt4Tensor
 from torch.library import impl, Library
-from torchao.quantization.quantize_.workflows.int4.int4_tensor import Int4Tensor
 from torchao.quantization.quantize_.workflows.intx.intx_unpacked_to_int8_tensor import (
     IntxUnpackedToInt8Tensor,
 )
@@ -59,11 +62,18 @@ def _meta(self, qdata, scale, zero, group_size):
 
 @impl(_lib, "int4_plain_mm", "CUDA")
 def _cuda(self, qdata, scale, zero, group_size):
+    # scale/zero are stored in the coalesced [N, n_groups] layout (transposed
+    # at pack time, see pack_cuda.pack_linear_for_cuda), which is exactly what
+    # _dequant_matmul expects.
     return _dequant_matmul(self, qdata, scale, zero, group_size)
 
 
 def _dequant_matmul(x, qdata, scale, zero, group_size):
-    """Dequant INT4 weights to input dtype and call F.linear."""
+    """Dequant INT4 weights to input dtype and call F.linear.
+
+    scale/zero are in the coalesced [N, n_groups] layout (baked into the
+    weight constant at pack time), aligned row-for-row with qdata's [N, *].
+    """
     N, K_half = qdata.shape
     K = K_half * 2
     n_groups = K // group_size
@@ -75,8 +85,8 @@ def _dequant_matmul(x, qdata, scale, zero, group_size):
     high = ((p >> 4) & 0x0F).to(dtype)
     data = torch.stack([low, high], dim=-1).reshape(N, n_groups, group_size)
 
-    s = scale.to(dtype).t().unsqueeze(-1)
-    z = zero.to(dtype).t().unsqueeze(-1)
+    s = scale.to(dtype).unsqueeze(-1)
+    z = zero.to(dtype).unsqueeze(-1)
     w_deq = ((data - z) * s).reshape(N, K)
 
     return F.linear(x, w_deq)
@@ -90,8 +100,10 @@ def _dequant_matmul(x, qdata, scale, zero, group_size):
 #   qdata : [N, K]          int8 (one value per element, natural k order)
 #   scale : [N, K//gs]      bf16 (per-group, row-major)
 #   zero  : [N, K//gs]      int8 (per-group asymmetric zero point)
-# vs Int4Tensor's nibble-packed [N, K//2] qdata and transposed [K//gs, N]
-# scale/zero. The op signature mirrors int4_plain_mm for shim uniformity.
+# vs Int4Tensor's nibble-packed [N, K//2] qdata. (For CUDA, Int4Tensor's
+# scale/zero are repacked to the same coalesced [N, K//gs] layout at pack time;
+# see pack_cuda.pack_linear_for_cuda.) The op signature mirrors int4_plain_mm
+# for shim uniformity.
 # ---------------------------------------------------------------------------
 
 _lib.define(
@@ -130,12 +142,12 @@ def _dequant_matmul_int8(x, qdata, scale, zero, group_size):
 
 
 # ---------------------------------------------------------------------------
-# Int4Tensor F.linear dispatch
+# CudaCoalescedInt4Tensor F.linear dispatch
 # ---------------------------------------------------------------------------
 
 aten = torch.ops.aten
-_implements = Int4Tensor.implements
-_implements_torch_function = Int4Tensor.implements_torch_function
+_implements = CudaCoalescedInt4Tensor.implements
+_implements_torch_function = CudaCoalescedInt4Tensor.implements_torch_function
 
 
 @_implements([aten.linear.default])
@@ -155,6 +167,11 @@ def _(func, types, args, kwargs):
 
     M = x_2d.shape[0]
     if M <= 4:
+        # scale/zero are already in the coalesced [N, n_groups] layout the
+        # decode kernel reads directly (baked into the weight constant at pack
+        # time). Passing them straight through keeps the export graph free of
+        # any per-step transpose/clone, so the coalesced layout is realized
+        # without recomputing it every decode step.
         out = torch.ops.executorch_cuda.int4_plain_mm(x_2d, qdata, scale, zero, gs)
     else:
         out = _dequant_matmul(x_2d, qdata, scale, zero, gs)
