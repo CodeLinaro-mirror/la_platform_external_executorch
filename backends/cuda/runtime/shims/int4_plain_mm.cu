@@ -52,19 +52,8 @@ AOTITorchError aoti_torch_cuda_int4_plain_mm(
       InvalidArgument,
       "aoti_torch_cuda_int4_plain_mm: ret0 is null");
 
-  // Validate the coalesced scale/zero layout (PR #20038 comment-7).
-  //
-  // scale/zero are baked at pack time into the coalesced [N, K/group_size]
-  // layout (n_groups = K/group_size) that the decode kernel reads. Reject a
-  // tensor that is NOT in this layout (e.g. an un-transposed native torchao
-  // [n_groups, N] tensor) gracefully here, instead of aborting (the internal
-  // kernel relies on ET_CHECK, which kills the process) or silently computing
-  // garbage.
-  //
-  // Honest limitation: when N == K/group_size the scale is square and the
-  // native [n_groups, N] and coalesced [N, n_groups] layouts are
-  // shape-indistinguishable, so this guard cannot catch that case. The
-  // dedicated CudaCoalescedInt4Tensor type exists to disambiguate it.
+  // Validate the coalesced scale/zero layout [N, K/group_size]
+
   const int64_t N = qdata->size(0);
   const int64_t K = qdata->size(1) * 2;
 
