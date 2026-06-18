@@ -807,4 +807,4 @@ class ArmPassManager(ExportedProgramPassManager):
                 ]
             )
 
-            return self._transform_graph_module(graph_module)
+            return GraphModulePassManager(self.passes)(graph_module).graph_module

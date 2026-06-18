@@ -1,5 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
+# Copyright 2026 Arm Limited and/or its affiliates.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -619,6 +620,41 @@ class TestPartitioner(unittest.TestCase):
             and node.target == torch.ops.aten.copy_.default
         ]
         self.assertEqual(len(copy_node), 1)
+
+    def test_tag_constant_data_detects_indirect_buffer_mutation(self) -> None:
+        class MutableStateModule(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.register_buffer("state", torch.zeros(1))
+
+            def forward(self, x):
+                result = x + self.state
+                self.state.copy_(x)
+                return result
+
+        edge = exir.to_edge(
+            torch.export.export(MutableStateModule(), (torch.ones(1),), strict=True)
+        )
+        exported_program = edge.exported_program()
+        state_node = next(
+            node
+            for node in exported_program.graph.nodes
+            if exported_program.graph_signature.inputs_to_buffers.get(node.name)
+            == "state"
+        )
+        delegate_tag = "test_partition"
+        for user in state_node.users:
+            user.meta["delegation_tag"] = delegate_tag
+
+        tag_constant_data(exported_program)
+
+        self.assertTrue(
+            all(
+                user.meta.get("delegation_tag") == delegate_tag
+                for user in state_node.users
+            )
+        )
+        self.assertNotIn("delegation_tag", state_node.meta)
 
     def test_buffer_mutation1(self):
         class TestModule(torch.nn.Module):
