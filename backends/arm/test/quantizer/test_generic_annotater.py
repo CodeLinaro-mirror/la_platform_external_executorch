@@ -7,7 +7,7 @@ import itertools
 from typing import Any, Callable, Tuple
 
 import torch
-from executorch.backends.arm.quantizer import is_annotated
+from executorch.backends.arm.quantizer import is_annotated, quantization_annotator
 from executorch.backends.arm.test.tester.test_pipeline import TosaPipelineINT
 from executorch.backends.test.harness.stages import StageType
 
@@ -87,6 +87,17 @@ def test_transpose_tosa_INT():
     check_annotation(
         SingleOpModel(torch.transpose_copy, (torch.randn(2, 3),), dim0=0, dim1=1),
     )
+
+
+def test_moveaxis_movedim_shared_qspec_annotations():
+    expected_ops = {
+        torch.ops.aten.moveaxis.int,
+        torch.ops.aten.moveaxis.intlist,
+        torch.ops.aten.movedim.int,
+        torch.ops.aten.movedim.intlist,
+    }
+
+    assert expected_ops <= quantization_annotator._one_to_one_shared_input_qspec
 
 
 def test_tile_tosa_INT():
