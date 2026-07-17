@@ -441,7 +441,7 @@ cases = {
         0,
     ),
     "model_1_conv_maxpool_residual_linear": TransposeCountCase(
-        Model1ConvMaxPoolResidualLinear(), (torch.randn(2, 8, 64),), 5
+        Model1ConvMaxPoolResidualLinear(), (torch.randn(2, 8, 64),), 4
     ),
     "model_2_conv_mha_linear_layernorm": TransposeCountCase(
         Model2ConvMhaLinearLayerNorm(), (torch.randn(2, 8, 32),), 8
@@ -462,10 +462,10 @@ cases = {
         Model7DwConvBatchNormLinear(), (torch.randn(2, 8, 64),), 1
     ),
     "model_8_conv_batchnorm_maxpool_residual": TransposeCountCase(
-        Model8ConvBatchNormMaxPoolResidual(), (torch.randn(1, 8, 16, 16),), 4
+        Model8ConvBatchNormMaxPoolResidual(), (torch.randn(1, 8, 16, 16),), 3
     ),
     "model_9_dilated_conv_batchnorm_avgpool_residual": TransposeCountCase(
-        Model9DilatedConvBatchNormAvgPoolResidual(), (torch.randn(1, 8, 16, 16),), 4
+        Model9DilatedConvBatchNormAvgPoolResidual(), (torch.randn(1, 8, 16, 16),), 3
     ),
     "model_10_dwconv_batchnorm_linear_cat": TransposeCountCase(
         Model10DwConvBatchNormLinearCat(), (torch.randn(2, 8, 64),), 1
