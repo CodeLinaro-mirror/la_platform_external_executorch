@@ -10,7 +10,7 @@ script_dir=$(realpath "$(dirname "${BASH_SOURCE[0]}")")
 et_root_dir=$(realpath "${script_dir}/../../..")
 build_executor_runner=${et_root_dir}/backends/arm/scripts/build_executor_runner.sh
 build_root_test_dir=${et_root_dir}/arm_test/arm_semihosting_executor_runner
-extraflags="-DET_ARM_BAREMETAL_METHOD_ALLOCATOR_POOL_SIZE=83886080"
+extraflags="-DEXECUTORCH_OPTIMIZE_SIZE=ON -DET_ARM_BAREMETAL_METHOD_ALLOCATOR_POOL_SIZE=83886080"
 portable_extraflags="${extraflags} -DHEAP_SIZE=0x00007000"
 
 # By default tests with an elf without any portable_ops
