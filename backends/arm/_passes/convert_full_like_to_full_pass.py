@@ -31,7 +31,6 @@ class ConvertFullLikeToFullPass(ArmOpTargetedPass):
         )
 
     Skip layout and device since it's not relevant for our backend.
-
     """
 
     _passes_required_after: Set[Type[ExportPass]] = {ComputeConstantOpsAOTPass}
@@ -42,7 +41,9 @@ class ConvertFullLikeToFullPass(ArmOpTargetedPass):
             return super().call_operator(op, args, kwargs, meta)
 
         tensor = args[0].data
-        full_args = (list(tensor.shape), args[1])
+        # Each entry is an int (static dim) or an aten.sym_size.int ProxyValue (dynamic dim).
+        size_args = self.call_size_operator_all(args[0], meta, edge_dialect=True)
+        full_args = (size_args, args[1])
         full_kwargs = {"dtype": tensor.dtype}
         return super().call_operator(
             exir_ops.edge.aten.full.default, full_args, full_kwargs, meta

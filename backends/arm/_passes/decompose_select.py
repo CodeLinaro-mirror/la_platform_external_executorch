@@ -22,8 +22,7 @@ from executorch.exir.pass_base import ExportPass, PassResult
 
 class DecomposeSelectPass(ArmOpTargetedPass):
     """This pass decomposes select into slice + squeeze to ensure that Aten and
-    TOSA outputs has the same rank (input rank -1)
-    """
+    TOSA outputs has the same rank (input rank -1)"""
 
     _passes_required_after: Set[Type[ExportPass]] = {ConvertSqueezesToViewPass}
     target_ops = (
@@ -56,10 +55,18 @@ class DecomposeSelectPass(ArmOpTargetedPass):
                 index = size_at_dim - abs(index)
 
             with graph_module.graph.inserting_before(node):
+                # ``Graph.create_node`` rejects raw SymInts in call_function
+                # args; ``materialize_symints`` lifts symbolic ``index`` /
+                # ``index + 1`` (from negative-index wrap-around against a
+                # dynamic shape) into graph nodes in a single call (shares
+                # producer-discovery + hash-cons). Static ints pass through.
+                start_arg, end_arg = graph_module.graph.materialize_symints(
+                    [index, index + 1]
+                )
                 slice_node = create_node(
                     graph_module.graph,
                     slice_op,
-                    (input_node, dim, index, index + 1),
+                    (input_node, dim, start_arg, end_arg),
                     from_node=node,
                     inherit_qparams=False,
                 )
