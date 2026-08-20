@@ -40,7 +40,7 @@ The main configuration point for the lowering is the `EthosUCompileSpec` consume
 The full user-facing API is documented below.
 
 ```python
-class EthosUCompileSpec(target: str, system_config: str | None = None, memory_mode: str | None = None, extra_flags: list[str] | None = None, config_ini: str | None = 'Arm/vela.ini')
+class EthosUCompileSpec(target: str, system_config: str | None = None, memory_mode: str | None = None, extra_flags: list[str] | None = None, config_ini: str | None = 'Arm/vela.ini', external_block_placements: executorch.backends.arm.ethosu.compile_spec.VelaExternalBlockPlacements | None = None)
 ```
 Normalise Ethos-U compile configuration and compiler flags.
 
@@ -55,6 +55,8 @@ Args:
         Vela.
 - **config_ini (str | None)**: Path to a Vela .ini configuration file.
         Defaults to ``"Arm/vela.ini"``.
+- **external_block_placements (VelaExternalBlockPlacements | None)**: Command
+        and weight data to emit as named data with their placement tags.
 
 ```python
 def EthosUCompileSpec.dump_debug_info(self, debug_mode: executorch.backends.arm.common.arm_compile_spec.ArmCompileSpec.DebugMode | None):

@@ -1,3 +1,5 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
 # Copyright 2023, 2025-2026 Arm Limited and/or its affiliates.
 #
 # This source code is licensed under the BSD-style license found in the
@@ -55,20 +57,38 @@ if(EXECUTORCH_BUILD_ARM_BAREMETAL AND EXECUTORCH_BUILD_ARM_ETHOSU_LINUX)
   )
 endif()
 
+if(EXECUTORCH_BUILD_ARM_VELA_BIN_STREAM
+   OR EXECUTORCH_BUILD_ARM_BAREMETAL
+   OR EXECUTORCH_BUILD_ARM_ETHOSU_LINUX
+)
+  add_library(
+    executorch_arm_vela_bin_stream STATIC
+    ${EXECUTORCH_ROOT}/backends/arm/runtime/VelaBinStream.cpp
+  )
+  target_link_libraries(executorch_arm_vela_bin_stream PUBLIC executorch_core)
+  target_include_directories(
+    executorch_arm_vela_bin_stream PRIVATE ${_common_include_directories}
+  )
+  if(NOT CMAKE_SKIP_INSTALL_RULES)
+    install(TARGETS executorch_arm_vela_bin_stream EXPORT ExecuTorchTargets)
+  endif()
+endif()
+
 # Ethos-U backend builds (bare metal or Linux driver stack)
 if(EXECUTORCH_BUILD_ARM_BAREMETAL OR EXECUTORCH_BUILD_ARM_ETHOSU_LINUX)
 
   add_compile_options("-Wall" "-Werror")
 
-  set(_arm_backend_sources
-      backends/arm/runtime/EthosUBackend.cpp
-      backends/arm/runtime/EthosUBackend_IoMemcpy.cpp
-      backends/arm/runtime/VelaBinStream.cpp
+  set(_arm_backend_sources backends/arm/runtime/EthosUBackend.cpp
+                           backends/arm/runtime/EthosUBackend_IoMemcpy.cpp
   )
   list(TRANSFORM _arm_backend_sources PREPEND "${EXECUTORCH_ROOT}/")
 
   add_library(executorch_delegate_ethos_u STATIC ${_arm_backend_sources})
-  target_link_libraries(executorch_delegate_ethos_u PUBLIC executorch_core)
+  target_link_libraries(
+    executorch_delegate_ethos_u PUBLIC executorch_arm_vela_bin_stream
+                                       executorch_core
+  )
   target_include_directories(
     executorch_delegate_ethos_u PRIVATE ${_common_include_directories}
   )
