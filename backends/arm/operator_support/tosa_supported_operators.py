@@ -1151,7 +1151,7 @@ class CheckMixedFloatingInputs(OperatorSupportBase):
 class CheckFPComparisonInputs(OperatorSupportBase):
     """Reject unsupported comparison inputs under the FP profile."""
 
-    target_ops = {
+    comparison_ops = {
         exir_ops.edge.aten.eq.Tensor,
         exir_ops.edge.aten.eq.Scalar,
         exir_ops.edge.aten.ne.Tensor,
@@ -1164,6 +1164,10 @@ class CheckFPComparisonInputs(OperatorSupportBase):
         exir_ops.edge.aten.le.Scalar,
         exir_ops.edge.aten.lt.Tensor,
         exir_ops.edge.aten.lt.Scalar,
+    }
+    target_ops = comparison_ops | {
+        exir_ops.edge.aten.isinf.default,
+        exir_ops.edge.aten.isnan.default,
     }
     supported_dtypes = {torch.float16, torch.float32, torch.bfloat16}
     castable_comparison_dtypes = {torch.int8, torch.int16}
@@ -1186,7 +1190,9 @@ class CheckFPComparisonInputs(OperatorSupportBase):
         if all(dtype in self.supported_dtypes for dtype in input_dtypes):
             return True
 
-        if all(dtype in self.castable_comparison_dtypes for dtype in input_dtypes):
+        if node.target in self.comparison_ops and all(
+            dtype in self.castable_comparison_dtypes for dtype in input_dtypes
+        ):
             return True
 
         unsupported_dtype = next(
