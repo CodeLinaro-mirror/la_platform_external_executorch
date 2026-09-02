@@ -133,6 +133,11 @@ class MLXPartitioner(Partitioner):
         handler that rejects the 6-arg edge form, for instance). Preserving an op
         the handler then rejects is worse than not preserving it, because the op
         neither decomposes into something delegatable nor lowers itself.
+
+        Preservation is per operator, so a target is only preserved when every
+        node carrying it is supported. One unsupported node is enough to give the
+        whole operator back to decomposition: keeping it would leave that node
+        neither lowered nor decomposed, and export would stop.
         """
         from executorch.backends.mlx.builder.program_builder import MLXProgramBuilder
 
@@ -157,6 +162,7 @@ class MLXPartitioner(Partitioner):
 
         # Collect ops for nodes that are actually supported
         do_not_decompose: list[torch._ops.OpOverload] = []
+        declined: set[torch._ops.OpOverload] = set()
 
         for node in ep.graph.nodes:
             if node.op == "call_function" and isinstance(
@@ -166,6 +172,10 @@ class MLXPartitioner(Partitioner):
                 if info is not None and info.supported:
                     if node.target not in do_not_decompose:
                         do_not_decompose.append(node.target)
+                else:
+                    declined.add(node.target)
+
+        do_not_decompose = [op for op in do_not_decompose if op not in declined]
 
         self._not_decompose_cache = (weakref.ref(ep), do_not_decompose)
 
