@@ -29,7 +29,7 @@ from executorch.backends.arm.tosa.specification import (
     TosaLoweringContext,
     TosaSpecification,
 )
-from executorch.backends.cadence.aot.graph_builder import GraphBuilder
+from executorch.backends.test.graph_builder import GraphBuilder
 from executorch.backends.test.harness.stages import StageType
 from executorch.exir.dialects._ops import ops as exir_ops
 from executorch.exir.passes.quantize_io_pass import (
@@ -55,8 +55,7 @@ class SimpleModel(torch.nn.Module):
 @common.parametrize("test_data", SimpleModel.test_data)
 def test_quantize_io_u55_INT(test_data: input_t):
     """Test the executorch/exir/passes/quantize_io_pass pass works(meaning we
-    don't get Q/DQ nodes) on a simple model.
-    """
+    don't get Q/DQ nodes) on a simple model."""
     model = SimpleModel()
     pipeline = EthosU55PipelineINT(
         model,
@@ -199,8 +198,7 @@ def test_insert_rescale_tosa_INT_folds_uint8_output():
 
 def test_quantize_io_tosa_INT_uint8_simple_mlp():
     """Float-input MLP uses uint8 IO quantization and folds to a single
-    delegate.
-    """
+    delegate."""
     model = SimpleMLP().eval()
     test_data = (torch.rand(1, 4),)
     compile_spec = common.get_tosa_compile_spec("TOSA-1.0+INT")
