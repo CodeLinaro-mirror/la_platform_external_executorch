@@ -337,6 +337,14 @@ class TestProgramManagers(unittest.TestCase):
         )
         edge_manager.to_executorch()
 
+    def test_check_tensor_all(self):
+        class M(torch.nn.Module):
+            def forward(self, x):
+                torch._check_tensor_all(x.abs() < 1e9)
+                return x * 2
+
+        to_edge(export(M(), (torch.randn(4),))).to_executorch()
+
     def test_data_dependent(self):
         with torch.library._scoped_library("mylib", "FRAGMENT") as lib:
             torch.library.define(

@@ -19,7 +19,10 @@ from executorch.exir.dialects.edge._ops import EdgeOpOverload
 from executorch.exir.error import ExportError, ExportErrorType
 from executorch.exir.lowered_backend_module import LoweredBackendModule
 from executorch.exir.passes.dim_order_ops_registry import DimOrderOpsMap
-from executorch.exir.passes.executorch_prim_ops_registry import _EXECUTORCH_SYM_OPS
+from executorch.exir.passes.executorch_prim_ops_registry import (
+    _EXECUTORCH_SYM_OPS,
+    _PYTHON_SYM_OPS_TO_EXECUTORCH_SYM_OPS,
+)
 from executorch.exir.passes.replace_aten_with_edge_pass import DISALLOW_LIST
 from executorch.exir.verification.arg_validator import (
     EdgeOpArgValidator,
@@ -294,6 +297,7 @@ def EXIREdgeDialectVerifier(  # noqa: C901
                 in [operator.getitem]
                 + DISALLOW_LIST
                 + list(_EXECUTORCH_SYM_OPS)
+                + list(_PYTHON_SYM_OPS_TO_EXECUTORCH_SYM_OPS)
                 + self._core_aten_ops_exception_list
             ):
                 return
