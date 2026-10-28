@@ -17,8 +17,10 @@ from executorch.exir.backend.backend_details import (
 )
 from executorch.exir.backend.compile_spec_schema import CompileSpec
 from executorch.exir.passes.memory_format_ops_pass import DimOrderOpsRevertPass
-from openvino.frontend.pytorch.torchdynamo.compile import (  # type: ignore[import-untyped]
-    openvino_compile,
+from openvino import compile_model  # type: ignore[import-untyped]
+from openvino.frontend import FrontEndManager  # type: ignore[import-untyped]
+from openvino.frontend.pytorch.fx_decoder import (  # type: ignore[import-untyped]
+    TorchFXPythonDecoder,
 )
 
 
@@ -45,17 +47,22 @@ class OpenvinoBackend(BackendDetails):
                 edge_program._graph_module = result.graph_module
 
         input_names = edge_program.graph_signature.user_inputs
-        args = []
+        input_types = []
         for node in edge_program.graph.nodes:
             if node.target in input_names:
-                args.append(node.meta["val"])
+                input_types.append(node.meta["val"].dtype)
 
         compile_options = {}
         for spec in module_compile_spec:
             compile_options[spec.key] = spec.value.decode()
 
-        compiled = openvino_compile(
-            edge_program.module(), *args, options=compile_options
+        # The converter chooses some lowerings (e.g. boolean-mask indexing) from
+        # the input types, so they must be known before conversion starts.
+        decoder = TorchFXPythonDecoder(edge_program.module(), input_types=input_types)
+        frontend = FrontEndManager().load_by_framework("pytorch")
+        compiled = compile_model(
+            frontend.convert(frontend.load(decoder)),
+            compile_options.get("device", "CPU"),
         )
         model_bytes = compiled.export_model()
 
