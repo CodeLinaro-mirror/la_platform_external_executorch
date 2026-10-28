@@ -31,6 +31,11 @@ _VIEW_TARGETS: Dict[
     # natively by inductor, so map it here like the other view-copy ops.
     torch.ops.aten.split_copy.Tensor: torch.ops.aten.split.Tensor,
     ops.edge.aten.split_copy.Tensor: ops.edge.aten.split.Tensor,
+    # Edge turns ``detach`` into ``detach_copy``, which has no c-shim either.
+    # Without autograd ``detach`` is ``alias``, which unlike ``detach`` is core
+    # ATen and so passes Edge verification.
+    torch.ops.aten.detach_copy.default: torch.ops.aten.alias.default,
+    ops.edge.aten.detach_copy.default: ops.edge.aten.alias.default,
 }
 
 

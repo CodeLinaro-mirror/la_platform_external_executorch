@@ -328,6 +328,29 @@ class TestCudaExport(unittest.TestCase):
         edge_program_manager = self._export_to_cuda_with_lower(module, inputs)
         self.assertIsNotNone(edge_program_manager, "Simple add operation export failed")
 
+    def test_detach(self):
+        """Edge turns detach into detach_copy, which has no CUDA kernel of its own."""
+
+        class DetachModule(torch.nn.Module):
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return (x * 2).detach() + 1
+
+        # The default config also verifies the program the backend rewrites.
+        edge_program_manager = to_edge_transform_and_lower(
+            export(DetachModule(), (torch.randn(4, 8),), strict=True),
+            partitioner=[
+                CudaPartitioner(
+                    [CudaBackend.generate_method_name_compile_spec("forward")]
+                )
+            ],
+        )
+        self.assertTrue(
+            any(
+                "executorch_call_delegate" in str(node.target)
+                for node in edge_program_manager.exported_program().graph.nodes
+            )
+        )
+
     def test_conv2d(self):
         """Test CUDA export for 2D convolution."""
 
