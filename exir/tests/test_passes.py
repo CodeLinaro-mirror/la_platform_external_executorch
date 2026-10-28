@@ -2902,6 +2902,36 @@ class TestPasses(unittest.TestCase):
         module = new_ep.module()
         self.assertFalse(torch.equal(module(x), module(x)))
 
+    def test_constant_prop_pass_keeps_tensor_written_in_place(self) -> None:
+        """
+        torch.export keeps in-place ops. A tensor or buffer that one writes,
+        directly, through a view, as an out= argument or in a list, has to stay
+        a runtime tensor, or the folded value is wrong and decomposing can fail.
+        """
+
+        class WrittenInPlace(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.register_buffer("b", torch.zeros(6))
+
+            def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+                t = torch.zeros(2, 6)
+                rows = t.unbind(0)
+                rows[0].add_(x)
+                out = torch.zeros(6)
+                torch.mul(x, 2, out=out)
+                listed = torch.zeros(6)
+                torch._foreach_add_([listed], [x])
+                self.b[1:3].copy_(x[:2])
+                return rows[0] + rows[1] + out + listed + self.b * 2, self.b
+
+        x = torch.randn(6)
+        ep = constant_prop_pass(export(WrittenInPlace(), (x,), strict=False))
+        self.assertEqual(len(ep.constants), 0)
+        torch.testing.assert_close(
+            ep.run_decompositions({}).module()(x), WrittenInPlace()(x)
+        )
+
     def test_constant_prop_pass_detaches_folded_parameters(self) -> None:
         class M(torch.nn.Module):
             def __init__(self):

@@ -7,6 +7,7 @@
 # pyre-unsafe
 
 import logging
+import operator
 from collections import OrderedDict
 from typing import cast, Mapping, Optional
 
@@ -15,6 +16,9 @@ from executorch.exir import memory
 from executorch.exir.dialects._ops import ops as exir_ops
 from executorch.exir.dialects.edge._ops import EdgeOpOverload
 from executorch.exir.operator.util import _QUANT_PRIMITIVES
+from executorch.exir.passes.insert_write_back_for_buffers_pass import (
+    _schema_paired_args,
+)
 from executorch.exir.passes.replace_aten_with_edge_pass import aten_to_edge
 from torch._export.utils import (
     get_buffer,
@@ -110,7 +114,12 @@ def get_constant_placeholder_dict(
     Returns a dictionary of placeholder node -> constant tensor.
     """
     const_node_to_tensor: OrderedDict[torch.fx.Node, torch.Tensor] = OrderedDict()
+    # Before run_decompositions, buffers_to_mutate does not list a buffer that
+    # is written in place, so it looks like a constant here.
+    written = _nodes_written_in_place(exported_program.graph)
     for node in exported_program.graph.find_nodes(op="placeholder"):
+        if node in written:
+            continue
         if is_param(exported_program, node):
             const_node_to_tensor[node] = cast(
                 torch.Tensor, get_param(exported_program, node)
@@ -124,6 +133,40 @@ def get_constant_placeholder_dict(
                 torch.Tensor, get_lifted_tensor_constant(exported_program, node)
             )
     return const_node_to_tensor
+
+
+def _nodes_written_in_place(graph: torch.fx.Graph) -> set[torch.fx.Node]:
+    """
+    Returns the nodes whose value an in-place op writes, directly or through a
+    view. Such a value has to stay a runtime tensor, not a constant.
+    """
+    written = set()
+    for node in graph.nodes:
+        schema = getattr(node.target, "_schema", None)
+        if node.op != "call_function" or schema is None:
+            continue
+        for arg, schema_arg in _schema_paired_args(node, schema):
+            alias_info = schema_arg.alias_info
+            if alias_info is not None and alias_info.is_write:
+                written.update(
+                    leaf
+                    for leaf in pytree.tree_leaves(arg)
+                    if isinstance(leaf, torch.fx.Node)
+                )
+    # A write through a view also writes the tensor it views.
+    pending = list(written)
+    while pending:
+        node = pending.pop()
+        if node.op != "call_function" or not node.args:
+            continue
+        base = node.args[0]
+        is_view = node.target is operator.getitem or getattr(
+            node.target, "is_view", False
+        )
+        if is_view and isinstance(base, torch.fx.Node) and base not in written:
+            written.add(base)
+            pending.append(base)
+    return written
 
 
 def get_propagated_const_tensor_dict(
@@ -142,9 +185,12 @@ def get_propagated_const_tensor_dict(
         # Default set of targets to skip.
         all_skip_targets = _DEFAULT_SKIP_TARGETS
 
+    written_in_place = _nodes_written_in_place(exported_program.graph)
+
     for node in exported_program.graph.nodes:
         if (
             node.op != "call_function"
+            or node in written_in_place
             or node.target is memory.alloc
             or node.target in all_skip_targets
             # Ops with side effects (RNG draws, mutation) have to run at
