@@ -54,14 +54,19 @@ class DecomposeWrapWithAutocast(ExportPass):
         for node in graph.nodes:
             if isinstance(node.target, torch._higher_order_ops.wrap.WrapWithAutocast):
                 submod, _ = self._get_submod(gm, node)
+                # Inline nested regions first. Their submodule names only make
+                # sense inside this submodule.
+                self._replace(submod)
                 n_args = node.args
                 input_submod = n_args[4]
                 decomposed_module = submod
                 with graph.inserting_before(node):
-                    # remap is used to map original node values to new node values,
-                    # which ensures that reference to nodes are correctly updated in the new graph
-                    # remap = {"expand_1": node.args[5], "to_4": node.args[6]}
-                    remap = {n_args[i].name: n_args[i] for i in range(5, len(n_args))}
+                    # remap maps each placeholder of the submodule to the operand
+                    # passed in its position. Their names need not match.
+                    placeholders = [
+                        n for n in submod.graph.nodes if n.op == "placeholder"
+                    ]
+                    remap = {p.name: arg for p, arg in zip(placeholders, n_args[5:])}
                     merge_decomposed_graph(
                         remap=remap,
                         target_node=node,
