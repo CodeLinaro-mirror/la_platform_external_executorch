@@ -35,7 +35,7 @@ class _DependencyViewer:
     """
 
     def __init__(self, graph_module: GraphModule, nodes):
-        all_nodes = list(graph_module.graph.nodes)
+        all_nodes = self.nodes = list(graph_module.graph.nodes)
         self.positions = {node: i for i, node in enumerate(all_nodes)}
         self.downstreams = {}
         self.upstreams = {}
@@ -127,12 +127,104 @@ class GroupBasedPartitioner(CapabilityBasedPartitioner):
                     self.node_to_group[node] = i
                     self.all_nodes_in_groups.add(node)
 
-    def _can_merge_partitions(self, masks1, masks2):
-        """Check if merging two partitions would create a cycle."""
-        nodes, downstreams, upstreams = (m1 | m2 for m1, m2 in zip(masks1, masks2))
-        # Fused on its own, the merged partition has a cycle exactly when a node
-        # outside it is downstream of it and also upstream of it.
-        return not (downstreams & upstreams & ~nodes)
+    def _compute_weight(self, node):
+        """How much a node counts toward keeping its partition from being filtered."""
+        if node.op != "call_function":
+            return 0
+        assert callable(node.target)
+        target_name = _get_qualified_name(node.target)
+        default_non_compute_ops = {"torch.ops.aten.view", "_operator.getitem"}
+        non_compute_ops = default_non_compute_ops.union(set(self.non_compute_ops or []))
+        weight = 0 if target_name in non_compute_ops else 1
+        if (
+            self.allowed_single_node_partition_ops
+            and target_name in self.allowed_single_node_partition_ops
+        ):
+            weight += 1
+        return weight
+
+    def _is_kept(self, partition, compute_weight):
+        """Whether a partition will be fused into one node, if it does not grow any
+        further. A single node needs no fusing: it keeps the same edges either way."""
+        if self.allows_single_node_partition:
+            return len(partition.nodes) > 1
+        return compute_weight > 1
+
+    def _closure(
+        self, partition_id, partition_masks, assignment, nodes, kept_nodes, closures
+    ):
+        """Bitmask of a kept partition and of every node it reaches once each kept
+        partition is fused into a single node. Cached in closures. None if kept
+        partitions already depend on each other, which only node_groups given by
+        the caller can cause; merges never undo that, so None is cached too."""
+        stack = [partition_id]
+        while stack:
+            current = stack[-1]
+            if current in closures:
+                stack.pop()
+                continue
+            current_nodes, reach, _ = partition_masks[current]
+            covered = current_nodes
+            missing = None
+            while todo := reach & kept_nodes & ~covered:
+                position = (todo & -todo).bit_length() - 1
+                other = assignment[nodes[position]]
+                if other not in closures or closures[other] is None:
+                    missing = other
+                    break
+                reach |= closures[other]
+                covered |= closures[other]
+            if missing is None:
+                closures[current] = current_nodes | reach
+                stack.pop()
+            elif missing in stack or missing in closures:
+                for p in stack:
+                    closures[p] = None
+                return None
+            else:
+                stack.append(missing)
+        return closures[partition_id]
+
+    def _can_merge_partitions(
+        self,
+        masks1,
+        masks2,
+        partition_masks,
+        assignment,
+        nodes,
+        kept_nodes,
+        closures,
+    ):
+        """Check if merging two partitions would create a cycle. nodes lists the
+        graph's nodes by position."""
+        merged, downstreams, upstreams = (m1 | m2 for m1, m2 in zip(masks1, masks2))
+        # Fused on its own, the merged partition has a cycle when a node outside
+        # it is downstream of it and also upstream of it.
+        if downstreams & upstreams & ~merged:
+            return False
+
+        # Every other kept partition becomes a single node when it is fused, so
+        # reaching one of its nodes reaches everything downstream of all of
+        # them. Without this, two partitions that are each free of cycles can
+        # still depend on each other.
+        covered = merged
+        while reached := downstreams & kept_nodes & ~covered:
+            position = (reached & -reached).bit_length() - 1
+            closure = self._closure(
+                assignment[nodes[position]],
+                partition_masks,
+                assignment,
+                nodes,
+                kept_nodes,
+                closures,
+            )
+            if closure is None:
+                return False
+            downstreams |= closure
+            if downstreams & upstreams & ~merged:
+                return False
+            covered |= closure
+        return True
 
     def _process_all_nodes(
         self,
@@ -186,6 +278,18 @@ class GroupBasedPartitioner(CapabilityBasedPartitioner):
             partition_id: dependency_viewer.masks_of(partition.nodes)
             for partition_id, partition in partitions_by_id.items()
         }
+        compute_weights = {
+            partition_id: sum(self._compute_weight(n) for n in partition.nodes)
+            for partition_id, partition in partitions_by_id.items()
+        }
+        # Nodes of the partitions that will be fused, so a merge check can
+        # follow paths through them.
+        kept_nodes = 0
+        for partition_id, partition in partitions_by_id.items():
+            if self._is_kept(partition, compute_weights[partition_id]):
+                kept_nodes |= partition_masks[partition_id][0]
+        # Closures of kept partitions, see _closure.
+        closures = {}
 
         # Set to track removed partitions from initial static list so we can skip them
         already_merged = set()
@@ -201,12 +305,28 @@ class GroupBasedPartitioner(CapabilityBasedPartitioner):
                     continue
 
                 # Try to merge partitions if it doesn't create cycles
-                if self._can_merge_partitions(partition_masks[p1], partition_masks[p2]):
+                if self._can_merge_partitions(
+                    partition_masks[p1],
+                    partition_masks[p2],
+                    partition_masks,
+                    assignment,
+                    dependency_viewer.nodes,
+                    kept_nodes,
+                    closures,
+                ):
                     self._perform_partition_merge(p1, p2, partitions_by_id, assignment)
                     partition_masks[p1] = tuple(
                         m1 | m2
                         for m1, m2 in zip(partition_masks[p1], partition_masks.pop(p2))
                     )
+                    compute_weights[p1] += compute_weights.pop(p2)
+                    merged_nodes = partition_masks[p1][0]
+                    if self._is_kept(partitions_by_id[p1], compute_weights[p1]):
+                        kept_nodes |= merged_nodes
+                    # Only closures that reach the merged nodes change.
+                    stale = [p for p, c in closures.items() if c and c & merged_nodes]
+                    for p in stale:
+                        del closures[p]
 
                     # Mark p2 as merged
                     already_merged.add(p2)
@@ -257,26 +377,10 @@ class GroupBasedPartitioner(CapabilityBasedPartitioner):
         if self.allows_single_node_partition:
             return
 
-        default_non_compute_ops = {"torch.ops.aten.view", "_operator.getitem"}
-        non_compute_ops = default_non_compute_ops.union(set(self.non_compute_ops or []))
         partitions_to_remove = []
 
         for id, partition in partitions_by_id.items():
-            compute_node_count = 0
-            for node in partition.nodes:
-                if node.op == "call_function":
-                    assert callable(node.target)
-                    target_name = _get_qualified_name(node.target)
-
-                    if target_name not in non_compute_ops:
-                        compute_node_count += 1
-
-                    if (
-                        self.allowed_single_node_partition_ops
-                        and target_name in self.allowed_single_node_partition_ops
-                    ):
-                        compute_node_count += 1
-
+            compute_node_count = sum(self._compute_weight(n) for n in partition.nodes)
             if compute_node_count <= 1:
                 partitions_to_remove.append(id)
 

@@ -15,7 +15,7 @@ from executorch.exir.backend.canonical_partitioners.group_partitioner import (
 
 from torch.fx.passes.infra.partitioner import CapabilityBasedPartitioner
 from torch.fx.passes.operator_support import create_op_support, OperatorSupportBase
-from torch.fx.passes.utils.fuser_utils import validate_partition
+from torch.fx.passes.utils.fuser_utils import fuse_by_partitions, validate_partition
 
 
 class TestGroupPartitioner(unittest.TestCase):
@@ -1949,3 +1949,31 @@ class TestGroupPartitioner(unittest.TestCase):
             )
             for partition in partitioner.propose_partitions():
                 self.assertTrue(validate_partition(list(partition.nodes)))
+
+    def test_no_cycle_through_another_partition(self):
+        """
+        Test that merging stops when the merged partition and another partition
+        would depend on each other once both are fused:
+
+            x -> a -> sin -> c        (c and d are one node group)
+            x -> d -> sin -> b        (a and b would be merged)
+        """
+        graph = torch.fx.Graph()
+        x = graph.placeholder("x")
+        add, sin = torch.ops.aten.add.Tensor, torch.ops.aten.sin.default
+        a = graph.call_function(add, (x, x))
+        c = graph.call_function(add, (graph.call_function(sin, (a,)), x))
+        d = graph.call_function(add, (x, x))
+        b = graph.call_function(add, (graph.call_function(sin, (d,)), x))
+        graph.output((b, c))
+        graph_module = torch.fx.GraphModule(torch.nn.Module(), graph)
+
+        partitions = GroupBasedPartitioner(
+            graph_module,
+            create_op_support(lambda _, node: node.target == add),
+            node_groups=[[c, d]],
+            allows_single_node_partition=True,
+        ).propose_partitions()
+
+        # Before the fix this raised "Invalid partition, found dependency cycles".
+        fuse_by_partitions(graph_module, [p.nodes for p in partitions])
