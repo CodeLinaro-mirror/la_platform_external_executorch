@@ -39,7 +39,7 @@ class ELUVisitor(NodeVisitor):
         input_id = vals_to_ids[get_input_node(node, 0)]
 
         # alpha
-        alpha = cast(float, node.args[1])
+        alpha = cast(float, node.args[1]) if len(node.args) > 1 else 1.0
 
         # output
         output_id = vals_to_ids[node]

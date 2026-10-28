@@ -369,6 +369,30 @@ class EluConfig(GenericNodePartitionerConfig):
     def get_original_aten(self) -> Optional[torch._ops.OpOverload]:
         return torch.ops.aten.elu.default
 
+    def check_constraints(self, node: torch.fx.Node, ep: ExportedProgram) -> bool:
+        if not self.check_common_constraints(node, ep):
+            return False
+        # XNNPACK's ELU has only alpha, stored in the compute dtype. An alpha
+        # that overflows it gives NaN, and on x86 an infinite, zero or
+        # subnormal alpha is also mishandled. SELU decomposes to elu with
+        # scale != 1.
+        alpha = node.args[1] if len(node.args) > 1 else 1
+        scale = node.args[2] if len(node.args) > 2 else 1
+        input_scale = node.args[3] if len(node.args) > 3 else 1
+        finfo = torch.finfo(node.meta["val"].dtype)
+        if (
+            isinstance(alpha, bool)
+            or not finfo.tiny <= alpha <= finfo.max
+            or scale != 1
+            or input_scale != 1
+        ):
+            why(
+                node,
+                reason="ELU only supports a positive normal alpha, scale = 1 and input_scale = 1",
+            )
+            return False
+        return True
+
 
 class SoftmaxConfig(GenericNodePartitionerConfig):
     target_name = "_softmax.default"

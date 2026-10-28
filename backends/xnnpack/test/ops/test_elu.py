@@ -26,6 +26,14 @@ class TestElu(unittest.TestCase):
         def forward(self, x):
             return torch.nn.functional.elu(x, alpha=1.2)
 
+    class DefaultAlphaELU(torch.nn.Module):
+        def forward(self, x):
+            return torch.ops.aten.elu.default(x)
+
+    class InfiniteAlphaELU(torch.nn.Module):
+        def forward(self, x):
+            return torch.nn.functional.elu(x, alpha=float("inf"))
+
     def _test_elu(self, inputs):
         (
             Tester(self.ELU(), inputs)
@@ -43,15 +51,53 @@ class TestElu(unittest.TestCase):
             .run_method_and_compare_outputs()
         )
 
-    @unittest.skip("PyTorch Pin Update Required")
-    def _test_fp16_elu(self):
+    def test_fp16_elu(self):
         inputs = (torch.randn(1, 3, 3).to(torch.float16),)
         self._test_elu(inputs)
+        # An alpha that overflows fp16 would make XNNPACK return NaN.
+        (
+            Tester(torch.nn.ELU(alpha=1e5), inputs)
+            .export()
+            .to_edge_transform_and_lower()
+            .check_not(["torch.ops.higher_order.executorch_call_delegate"])
+            .to_executorch()
+            .serialize()
+            .run_method_and_compare_outputs()
+        )
 
-    @unittest.skip("PyTorch Pin Update Required")
-    def _test_fp32_elu(self):
+    def test_fp32_elu(self):
         inputs = (torch.randn(1, 3, 3),)
         self._test_elu(inputs)
+        # SELU decomposes to elu with scale != 1, which XNNPACK cannot run.
+        (
+            Tester(torch.nn.SELU(), inputs)
+            .export()
+            .to_edge_transform_and_lower()
+            .check_not(["torch.ops.higher_order.executorch_call_delegate"])
+            .to_executorch()
+            .serialize()
+            .run_method_and_compare_outputs()
+        )
+        # XNNPACK turns an infinite alpha into NaN, so such an elu stays on the CPU.
+        (
+            Tester(self.InfiniteAlphaELU(), inputs)
+            .export()
+            .to_edge_transform_and_lower()
+            .check_not(["torch.ops.higher_order.executorch_call_delegate"])
+            .to_executorch()
+            .serialize()
+            .run_method_and_compare_outputs()
+        )
+        # aten.elu called without alpha uses the default alpha of 1.
+        (
+            Tester(self.DefaultAlphaELU(), inputs)
+            .export()
+            .to_edge_transform_and_lower()
+            .check_count({"torch.ops.higher_order.executorch_call_delegate": 1})
+            .to_executorch()
+            .serialize()
+            .run_method_and_compare_outputs()
+        )
 
     @unittest.skip("Update Quantizer to quantize Elu")
     def _test_qs8_elu(self):
