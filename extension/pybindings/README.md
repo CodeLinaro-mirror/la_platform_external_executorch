@@ -142,7 +142,9 @@ and return borrowed CUDA results.
 Execution is synchronous at the Python boundary: a call returns after its device
 work has finished, so its outputs are ready on any stream. Every wait is for the
 whole device (`cudaDeviceSynchronize`), not for one stream, so it also waits for
-unrelated work queued on that device, for example by torch. Before it runs, a
+unrelated work queued on that device, for example by torch. Inside an
+`executorch.runtime.cuda.stream()` block, a call with only host inputs and
+outputs waits just for the selected stream instead. Before it runs, a
 call waits once for each device that holds a non-empty CUDA input or output.
 Another library may still be writing such an input: a torch CUDA tensor, a CUDA
 DLPack input, or a result of these bindings passed back in, which can share
