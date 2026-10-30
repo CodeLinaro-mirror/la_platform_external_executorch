@@ -36,8 +36,10 @@ PyTorch; ``torch.cuda.Stream`` works because it has ``__cuda_stream__``.
 
 As in PyTorch, the selection belongs to the thread, not to an asyncio task, so
 do not await or yield inside a block. Blocks end on the thread that started
-them, innermost first; a block left by a thread that ends, or by a dropped
-scope object, ends on its own. A ``Stream`` cannot be closed while any block
+them, innermost first. A block also ends when its thread ends, or when its
+scope object is dropped on that thread. A scope object dropped on another
+thread cannot end the block, so the stream stays selected until the thread
+that started the block ends. A ``Stream`` cannot be closed while any block
 selects its handle. Any other stream must stay alive while selected.
 """
 
