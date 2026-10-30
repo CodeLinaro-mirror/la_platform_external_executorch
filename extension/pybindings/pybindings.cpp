@@ -1831,6 +1831,9 @@ class PyCallerStreamScope final {
 
   void enter() {
     static std::atomic<uint64_t> next_id{1};
+    if (!owner_) {
+      check_device(stream_);
+    }
     const cudaStream_t stream = owner_ ? owner_->select() : stream_;
     try {
       auto guard =
@@ -1857,6 +1860,27 @@ class PyCallerStreamScope final {
   }
 
  private:
+  // Asks CUDA rather than trusting the device a wrapper reports. Needs CUDA
+  // 12.8; older builds rely on the device check in executorch.runtime.cuda.
+  static void check_device(cudaStream_t stream) {
+#if defined(CUDART_VERSION) && CUDART_VERSION >= 12080
+    int device = -1;
+    const auto status = cudaStreamGetDevice(stream, &device);
+    if (status != cudaSuccess) {
+      throw std::runtime_error(
+          std::string("Failed to find the device of a CUDA stream: ") +
+          cudaGetErrorString(status));
+    }
+    // The CUDA delegate installs a caller stream for device 0 only.
+    if (device != 0) {
+      throw std::runtime_error(
+          "Only a stream on CUDA device 0 can be selected for now");
+    }
+#else
+    (void)stream;
+#endif
+  }
+
   void end(bool refuse_out_of_order) {
     auto& scopes = caller_stream_scopes;
     const auto it = std::find_if(
